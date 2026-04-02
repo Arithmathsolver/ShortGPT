@@ -1,9 +1,17 @@
 import os
 import json
 import random
-from shortgpt.utils.utils import set_api_key
-from shortgpt.api_utils import upload_to_youtube
-from shortgpt.engine.facts_short_engine import FactsShortEngine
+import sys
+
+# Force the script to look for the installed shortgpt package
+try:
+    from shortgpt.utils.utils import set_api_key
+    from shortgpt.api_utils import upload_to_youtube
+    from shortgpt.engine.facts_short_engine import FactsShortEngine
+except ImportError:
+    from shortGPT.utils.utils import set_api_key
+    from shortGPT.api_utils import upload_to_youtube
+    from shortGPT.engine.facts_short_engine import FactsShortEngine
 
 # 1. Setup API Keys
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
@@ -14,20 +22,19 @@ niches = ["Space Facts", "Deep Sea Mysteries", "Ancient History Secrets", "Futur
 selected_niche = random.choice(niches)
 print(f"--- Starting Generation for: {selected_niche} ---")
 
-# 3. Initialize the Engine
+# 3. Initialize Engine
 content_engine = FactsShortEngine(
     facts_type=selected_niche,
     background_video_name="nature",
     num_images=0,
-    watermark="MyAwesomeBot"
+    watermark="MyBot"
 )
 
-# 4. Generate the Video
+# 4. Generate Video
 for step_num, step_logs in content_engine.makeContent():
     print(f"Step {step_num}: {step_logs}")
 
 video_path = content_engine.get_video_output_path()
-print(f"Video created at: {video_path}")
 
 # 5. Upload to YouTube
 token_raw = os.getenv("YOUTUBE_TOKEN")
@@ -36,14 +43,12 @@ if token_raw:
         youtube_token_data = json.loads(token_raw)
         upload_to_youtube(
             video_path=video_path,
-            title=f"{selected_niche} | Mind-Blowing Facts",
-            description=f"Amazing facts about {selected_niche}! #shorts #facts #ai",
-            keywords=f"{selected_niche}, facts, ai",
+            title=f"{selected_niche} | AI Facts",
+            description=f"Amazing facts about {selected_niche}! #shorts #ai",
+            keywords=f"{selected_niche}, facts",
             privacy_status="public",
             token_data=youtube_token_data
         )
-        print("Video successfully uploaded!")
+        print("Upload successful!")
     except Exception as e:
         print(f"Upload failed: {e}")
-else:
-    print("Error: YOUTUBE_TOKEN secret not found!")

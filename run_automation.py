@@ -2,7 +2,7 @@ import os
 import json
 import random
 
-# Flexible import to handle different ShortGPT versions
+# Flexible import for different ShortGPT versions
 try:
     from shortGPT.utils.utils import set_api_key
 except ImportError:
@@ -14,16 +14,17 @@ except ImportError:
 from shortGPT.api_utils import upload_to_youtube
 from shortGPT.engine.facts_short_engine import FactsShortEngine
 
-# 1. Setup API Keys
+# 1. Setup API Keys from GitHub Secrets
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
-set_api_key("PEXELS", os.getenv("PEXELS_API_KEY")
+set_api_key("PEXELS", os.getenv("PEXELS_API_KEY"))
 
-# 2. Pick a niche
+# 2. Pick a niche for variety
 niches = ["Space Facts", "Deep Sea Mysteries", "Ancient History Secrets", "Future Tech"]
 selected_niche = random.choice(niches)
 print(f"--- Starting Generation for: {selected_niche} ---")
 
 # 3. Initialize the Engine
+# We use 'nature' as a safe default for background videos
 content_engine = FactsShortEngine(
     facts_type=selected_niche,
     background_video_name="nature",
@@ -38,7 +39,7 @@ for step_num, step_logs in content_engine.makeContent():
 video_path = content_engine.get_video_output_path()
 print(f"Video created at: {video_path}")
 
-# 5. Upload to YouTube (with safety check)
+# 5. Upload to YouTube (using the token you generated in Colab)
 token_raw = os.getenv("YOUTUBE_TOKEN")
 if token_raw:
     try:

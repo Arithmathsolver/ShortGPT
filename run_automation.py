@@ -1,13 +1,22 @@
 import os
 import json
 import random
-from shortGPT.utils.utils import set_api_key
+
+# Flexible import to handle different ShortGPT versions
+try:
+    from shortGPT.utils.utils import set_api_key
+except ImportError:
+    try:
+        from shortGPT.api_utils import set_api_key
+    except ImportError:
+        from shortgpt.utils.utils import set_api_key
+
 from shortGPT.api_utils import upload_to_youtube
 from shortGPT.engine.facts_short_engine import FactsShortEngine
 
 # 1. Setup API Keys
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
-set_api_key("PEXELS", os.getenv("PEXELS_API_KEY"))
+set_api_key("PEXELS", os.getenv("PEXELS_API_KEY")
 
 # 2. Pick a niche
 niches = ["Space Facts", "Deep Sea Mysteries", "Ancient History Secrets", "Future Tech"]

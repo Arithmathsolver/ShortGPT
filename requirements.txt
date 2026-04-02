@@ -1,5 +1,5 @@
 python-dotenv
-shortGPT
+git+https://github.com/RayVentura/ShortGPT.git
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client

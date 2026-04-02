@@ -1,9 +1,8 @@
 name: Daily YouTube Automation
 on:
   schedule:
-    # This runs 5 times a day (every ~5 hours)
-    - cron: '0 0,5,10,15,20 * * *'
-  workflow_dispatch: # Allows you to run it manually for testing
+    - cron: '0 0,5,10,15,20 * * *' # 5 times a day
+  workflow_dispatch: 
 
 jobs:
   build:
@@ -13,18 +12,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Tools
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg imagemagick
+          # This line fixes the common "Policy Error" with ImageMagick on Linux
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+      - name: Install Python Requirements
+        run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run ShortGPT
+      - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-        run: python run_automation.py # You may need to create this simple trigger script
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
+        run: python run_automation.py

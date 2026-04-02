@@ -29,5 +29,21 @@ for step_num, step_logs in content_engine.makeContent():
 video_path = content_engine.get_video_output_path()
 print(f"Video created at: {video_path}")
 
-# 5. TODO: Add your YouTube upload function here 
-# (You'll need your token.json data for this part to work!)
+# 5. Upload to YouTube
+from shortGPT.api_utils import upload_to_youtube
+import json
+
+# Load your token from the GitHub Secret
+youtube_token_data = json.loads(os.getenv("YOUTUBE_TOKEN"))
+
+upload_to_youtube(
+    video_path=video_path,
+    title=f"{selected_niche} | Mind-Blowing Facts",
+    description=f"Check out these amazing facts about {selected_niche}! #shorts #facts #ai",
+    keywords=f"{selected_niche}, facts, educational",
+    privacy_status="public",
+    token_data=youtube_token_data
+)
+
+print("Video successfully uploaded to YouTube!")
+

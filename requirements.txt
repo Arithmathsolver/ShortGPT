@@ -18,3 +18,7 @@ moviepy==2.1.2
 progress
 questionary
 edge-tts
+shortGPT
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client

@@ -1,7 +1,8 @@
 import os
 import json
 import random
-from shortGPT.api_utils import set_api_key, upload_to_youtube
+from shortGPT.utils.utils import set_api_key
+from shortGPT.api_utils import upload_to_youtube
 from shortGPT.engine.facts_short_engine import FactsShortEngine
 
 # 1. Setup API Keys

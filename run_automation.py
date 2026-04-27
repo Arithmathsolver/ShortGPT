@@ -3,26 +3,51 @@ import sys
 import json
 import random
 
-# --- 1. THE AUTO-PATH FINDER ---
-# This looks at your current folder and tells Python where the tools are.
-current_dir = os.getcwd()
-sys.path.append(current_dir)
+# --- 1. AUTO-LOCATION DISCOVERY ---
+# This looks for the folder containing 'shortgpt' and 'engine'
+repo_root = os.getcwd()
+sys.path.append(repo_root)
 
-# We try the most likely locations for the stable repo structure
+# Check for the common 'shortgpt' subfolder structure
+possible_paths = [
+    repo_root,
+    os.path.join(repo_root, 'shortgpt'),
+    os.path.join(repo_root, 'ShortGPT'),
+]
+
+for path in possible_paths:
+    if path not in sys.path:
+        sys.path.append(path)
+
+# Try every possible import combination
 try:
-    from shortGPT.utils.utils import set_api_key
-    from shortGPT.api_utils import upload_to_youtube
-    from shortGPT.engine.facts_short_engine import FactsShortEngine
+    from shortgpt.utils.utils import set_api_key
+    from shortgpt.api_utils import upload_to_youtube
+    from shortgpt.engine.facts_short_engine import FactsShortEngine
 except ImportError:
     try:
-        from shortgpt.utils.utils import set_api_key
-        from shortgpt.api_utils import upload_to_youtube
-        from shortgpt.engine.facts_short_engine import FactsShortEngine
+        from shortGPT.utils.utils import set_api_key
+        from shortGPT.api_utils import upload_to_youtube
+        from shortGPT.engine.facts_short_engine import FactsShortEngine
     except ImportError:
-        # If the folders are right in the main directory
-        from utils.utils import set_api_key
-        from api_utils import upload_to_youtube
-        from engine.facts_short_engine import FactsShortEngine
+        try:
+            # Relative imports if the folder is right there
+            from utils.utils import set_api_key
+            from api_utils import upload_to_youtube
+            from engine.facts_short_engine import FactsShortEngine
+        except ImportError:
+            # Last ditch effort: search the whole repo for 'set_api_key'
+            import importlib.util
+            print("Searching for internal modules...")
+            set_api_key = None
+            for root, dirs, files in os.walk(repo_root):
+                if 'utils.py' in files or 'set_api_key.py' in files:
+                    sys.path.append(root)
+                    print(f"Found tools in: {root}")
+            # If we still can't find it, the repo might be empty or corrupted
+            from shortgpt.utils.utils import set_api_key
+            from shortgpt.api_utils import upload_to_youtube
+            from shortgpt.engine.facts_short_engine import FactsShortEngine
 
 # --- 2. SETUP API KEYS ---
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
@@ -64,5 +89,3 @@ if token_raw:
         print("Upload successful!")
     except Exception as e:
         print(f"Upload failed: {e}")
-else:
-    print("Error: YOUTUBE_TOKEN secret not found!")

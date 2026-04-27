@@ -19,6 +19,7 @@ from moviepy.editor import (
     AudioClip
 )
 from moviepy.video.VideoClip import Clip
-from moviepy import vfx, afx
+from moviepy.video import fx as vfx
+from moviepy.audio import fx as afx
 
 from shortGPT.editing_framework.rendering_logger import MoviepyProgressLogger

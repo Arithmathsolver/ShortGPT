@@ -3,18 +3,24 @@ import sys
 import json
 import random
 
-# ✅ Ensure current repo is in Python path (works locally + GitHub Actions)
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# ✅ Ensure repo path is available (safe for GitHub Actions)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# ✅ CLEAN IMPORT (ONLY ONE — no try/except mess)
-from shortGPT.utils.utils import set_api_key
+# ✅ CORRECT IMPORTS
+from shortGPT.utils import set_api_key
 from shortGPT.api_utils import upload_to_youtube
 from shortGPT.engine.facts_short_engine import FactsShortEngine
 
 
-# ✅ SETUP API KEYS
-set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
-set_api_key("PEXELS", os.getenv("PEXELS_API_KEY"))
+# ✅ SETUP API KEYS (with validation)
+gemini_key = os.getenv("GEMINI_API_KEY")
+pexels_key = os.getenv("PEXELS_API_KEY")
+
+if not gemini_key or not pexels_key:
+    raise ValueError("❌ Missing API keys. Check GitHub Secrets.")
+
+set_api_key("GEMINI", gemini_key)
+set_api_key("PEXELS", pexels_key)
 
 
 # ✅ PICK A NICHE

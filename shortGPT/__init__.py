@@ -1,30 +1,24 @@
-# import time
-# t1 = time.time()
-# from . import config
-# print("Took", time.time() - t1, "seconds to import config")
-# t1 = time.time()
-# from . import editing
-# print("Took", time.time() - t1, "seconds to import editing")
-# t1 = time.time()
-# from . import audio
-# print("Took", time.time() - t1, "seconds to import audio")
-# t1 = time.time()
-# from . import engine
-# print("Took", time.time() - t1, "seconds to import engine")
-# t1 = time.time()
-# from . import database
-# print("Took", time.time() - t1, "seconds to import database")
-# t1 = time.time()
-# from . import gpt
-# print("Took", time.time() - t1, "seconds to import gpt")
-# t1 = time.time()
-# from . import tracking
-# print("Took", time.time() - t1, "seconds to import tracking")
+# shortGPT/__init__.py
 
-# from . import config
-# from . import database
-# from . import editing_functions
-# from . import audio
-# from . import engine
-# from . import gpt
-# from . import tracking
+# Expose important submodules at the package level
+from . import config
+from . import database
+from . import audio
+from . import engine
+from . import gpt
+from . import tracking
+
+# If you have editing utilities, import them here
+try:
+    from . import editing_framework as editing
+except ImportError:
+    pass
+
+try:
+    from . import editing_utils as editing_functions
+except ImportError:
+    pass
+
+# Expose utils and api_utils
+from . import utils
+from . import api_utils

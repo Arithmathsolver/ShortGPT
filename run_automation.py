@@ -1,34 +1,39 @@
 import os
+import sys
 import json
 import random
-import sys
 
-# 1. THE FIX: Add the current directory to Python's search path
-# This forces it to find the 'shortgpt' folder in your repo
-current_dir = os.path.dirname(os.path.abspath(__file__))
+# --- 1. THE AUTO-PATH FINDER ---
+# This looks at your current folder and tells Python where the tools are.
+current_dir = os.getcwd()
 sys.path.append(current_dir)
 
+# We try the most likely locations for the stable repo structure
 try:
-    # Try importing from the local folder structure
     from shortGPT.utils.utils import set_api_key
     from shortGPT.api_utils import upload_to_youtube
     from shortGPT.engine.facts_short_engine import FactsShortEngine
 except ImportError:
-    # Fallback to lowercase if the folder is named differently
-    from shortgpt.utils.utils import set_api_key
-    from shortgpt.api_utils import upload_to_youtube
-    from shortgpt.engine.facts_short_engine import FactsShortEngine
+    try:
+        from shortgpt.utils.utils import set_api_key
+        from shortgpt.api_utils import upload_to_youtube
+        from shortgpt.engine.facts_short_engine import FactsShortEngine
+    except ImportError:
+        # If the folders are right in the main directory
+        from utils.utils import set_api_key
+        from api_utils import upload_to_youtube
+        from engine.facts_short_engine import FactsShortEngine
 
-# 2. Setup API Keys
+# --- 2. SETUP API KEYS ---
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
 set_api_key("PEXELS", os.getenv("PEXELS_API_KEY"))
 
-# 3. Pick a niche
+# --- 3. PICK A NICHE ---
 niches = ["Space Facts", "Deep Sea Mysteries", "Ancient History Secrets", "Future Tech"]
 selected_niche = random.choice(niches)
 print(f"--- Starting Generation for: {selected_niche} ---")
 
-# 4. Initialize Engine
+# --- 4. INITIALIZE ENGINE ---
 content_engine = FactsShortEngine(
     facts_type=selected_niche,
     background_video_name="nature",
@@ -36,14 +41,14 @@ content_engine = FactsShortEngine(
     watermark="MyBot"
 )
 
-# 5. Generate Video
+# --- 5. GENERATE VIDEO ---
 for step_num, step_logs in content_engine.makeContent():
     print(f"Step {step_num}: {step_logs}")
 
 video_path = content_engine.get_video_output_path()
 print(f"Video created at: {video_path}")
 
-# 6. Upload to YouTube
+# --- 6. UPLOAD TO YOUTUBE ---
 token_raw = os.getenv("YOUTUBE_TOKEN")
 if token_raw:
     try:

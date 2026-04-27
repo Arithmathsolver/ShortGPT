@@ -1,36 +1,29 @@
 import os
 import json
 import random
-import subprocess
 import sys
 
-# --- FORCE INSTALLATION SECTION ---
-def install_package(package):
-    print(f"Installing {package}...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
+# 1. Official Imports (Matching the library's case sensitivity)
 try:
-    from shortgpt.utils.utils import set_api_key
-    from shortgpt.api_utils import upload_to_youtube
-    from shortgpt.engine.facts_short_engine import FactsShortEngine
+    from shortGPT.utils.utils import set_api_key
+    from shortGPT.api_utils import upload_to_youtube
+    from shortGPT.engine.facts_short_engine import FactsShortEngine
 except ImportError:
-    # If the module is missing, we install it directly from the source
-    install_package("git+https://github.com/RayVentura/ShortGPT.git")
-    # Now try importing again
+    # Fallback for alternative installation structures
     from shortgpt.utils.utils import set_api_key
     from shortgpt.api_utils import upload_to_youtube
     from shortgpt.engine.facts_short_engine import FactsShortEngine
 
-# 1. Setup API Keys
+# 2. Setup API Keys
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
 set_api_key("PEXELS", os.getenv("PEXELS_API_KEY"))
 
-# 2. Pick a niche
+# 3. Pick a niche
 niches = ["Space Facts", "Deep Sea Mysteries", "Ancient History Secrets", "Future Tech"]
 selected_niche = random.choice(niches)
 print(f"--- Starting Generation for: {selected_niche} ---")
 
-# 3. Initialize Engine
+# 4. Initialize Engine
 content_engine = FactsShortEngine(
     facts_type=selected_niche,
     background_video_name="nature",
@@ -38,13 +31,14 @@ content_engine = FactsShortEngine(
     watermark="MyBot"
 )
 
-# 4. Generate Video
+# 5. Generate Video
 for step_num, step_logs in content_engine.makeContent():
     print(f"Step {step_num}: {step_logs}")
 
 video_path = content_engine.get_video_output_path()
+print(f"Video created at: {video_path}")
 
-# 5. Upload to YouTube
+# 6. Upload to YouTube
 token_raw = os.getenv("YOUTUBE_TOKEN")
 if token_raw:
     try:

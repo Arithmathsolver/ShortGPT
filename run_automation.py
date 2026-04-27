@@ -2,17 +2,31 @@ import os
 import json
 import random
 import sys
+import site
 
-# 1. Official Imports (Matching the library's case sensitivity)
-try:
-    from shortGPT.utils.utils import set_api_key
-    from shortGPT.api_utils import upload_to_youtube
-    from shortGPT.engine.facts_short_engine import FactsShortEngine
-except ImportError:
-    # Fallback for alternative installation structures
-    from shortgpt.utils.utils import set_api_key
-    from shortgpt.api_utils import upload_to_youtube
-    from shortgpt.engine.facts_short_engine import FactsShortEngine
+# 1. Force Python to see newly installed packages
+base_path = site.getsitepackages()[0]
+sys.path.append(base_path)
+
+def setup_imports():
+    global set_api_key, upload_to_youtube, FactsShortEngine
+    try:
+        from shortGPT.utils.utils import set_api_key
+        from shortGPT.api_utils import upload_to_youtube
+        from shortGPT.engine.facts_short_engine import FactsShortEngine
+    except ImportError:
+        try:
+            from shortgpt.utils.utils import set_api_key
+            from shortgpt.api_utils import upload_to_youtube
+            from shortgpt.engine.facts_short_engine import FactsShortEngine
+        except ImportError:
+            # Last resort: try to import from the direct source folder
+            sys.path.append(os.path.join(os.getcwd(), 'ShortGPT'))
+            from shortGPT.utils.utils import set_api_key
+            from shortGPT.api_utils import upload_to_youtube
+            from shortGPT.engine.facts_short_engine import FactsShortEngine
+
+setup_imports()
 
 # 2. Setup API Keys
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
@@ -36,7 +50,6 @@ for step_num, step_logs in content_engine.makeContent():
     print(f"Step {step_num}: {step_logs}")
 
 video_path = content_engine.get_video_output_path()
-print(f"Video created at: {video_path}")
 
 # 6. Upload to YouTube
 token_raw = os.getenv("YOUTUBE_TOKEN")

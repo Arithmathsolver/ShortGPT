@@ -20,13 +20,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg imagemagick
-          # This line fixes the common "Policy Error" with ImageMagick on Linux
           sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
       - name: Install Python Requirements
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+
+      # ✅ ADD THIS RIGHT HERE
+      - name: Fix Python path
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
       - name: Run ShortGPT Automation
         env:

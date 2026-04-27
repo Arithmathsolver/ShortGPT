@@ -35,12 +35,14 @@ selected_niche = random.choice(niches)
 print(f"--- Starting Generation for: {selected_niche} ---")
 
 
-# ✅ INITIALIZE ENGINE
+# ✅ INITIALIZE ENGINE (fixed: added missing args)
 content_engine = FactsShortEngine(
     facts_type=selected_niche,
     background_video_name="nature",
     num_images=0,
-    watermark="MyBot"
+    watermark="MyBot",
+    voiceModule="elevenlabs",              # adjust to your available voice module
+    background_music_name="calm_music"     # adjust to a valid background track name
 )
 
 

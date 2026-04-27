@@ -1,17 +1,25 @@
 import os
 import json
 import random
+import subprocess
 import sys
 
-# Force the script to look for the installed shortgpt package
+# --- FORCE INSTALLATION SECTION ---
+def install_package(package):
+    print(f"Installing {package}...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
 try:
     from shortgpt.utils.utils import set_api_key
     from shortgpt.api_utils import upload_to_youtube
     from shortgpt.engine.facts_short_engine import FactsShortEngine
 except ImportError:
-    from shortGPT.utils.utils import set_api_key
-    from shortGPT.api_utils import upload_to_youtube
-    from shortGPT.engine.facts_short_engine import FactsShortEngine
+    # If the module is missing, we install it directly from the source
+    install_package("git+https://github.com/RayVentura/ShortGPT.git")
+    # Now try importing again
+    from shortgpt.utils.utils import set_api_key
+    from shortgpt.api_utils import upload_to_youtube
+    from shortgpt.engine.facts_short_engine import FactsShortEngine
 
 # 1. Setup API Keys
 set_api_key("GEMINI", os.getenv("GEMINI_API_KEY"))
@@ -52,3 +60,5 @@ if token_raw:
         print("Upload successful!")
     except Exception as e:
         print(f"Upload failed: {e}")
+else:
+    print("Error: YOUTUBE_TOKEN secret not found!")

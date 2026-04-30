@@ -1,8 +1,9 @@
 name: Daily YouTube Automation
+
 on:
   schedule:
     - cron: '0 0,5,10,15,20 * * *' # 5 times a day
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,7 +28,6 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ✅ ADD THIS RIGHT HERE
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
@@ -35,5 +35,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}   # maps your secret to the variable name your code expects
         run: python run_automation.py

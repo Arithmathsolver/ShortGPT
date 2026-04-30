@@ -50,7 +50,7 @@ content_engine = FactsShortEngine(
     voiceModule=voice_module,
     facts_type=selected_niche,
     background_video_name="nature",
-    background_music_name="calm_music",   # replace with a valid background track name
+    background_music_name="the_mountain-background-music-159125",   # <-- matches your uploaded file
     num_images=0,
     watermark="MyBot"
 )

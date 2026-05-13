@@ -17,7 +17,7 @@ def num_tokens_from_messages(texts, model="gpt-4o-mini"):
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
         encoding = tiktoken.get_encoding("cl100k_base")
-    if model == "gpt-4o-mini":  # note: future models may deviate from this
+    if model == "gpt-4o-mini":
         if isinstance(texts, str):
             texts = [texts]
         score = 0
@@ -45,13 +45,11 @@ def get_first_number(string):
         return None
 
 def load_yaml_file(file_path: str) -> dict:
-    """Reads and returns the contents of a YAML file as dictionary"""
     return yaml.safe_load(open_file(file_path))
 
 def load_json_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
-        json_data = json.load(f)
-    return json_data
+        return json.load(f)
 
 def load_local_yaml_prompt(file_path):
     _here = Path(__file__).parent
@@ -67,8 +65,8 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
-    # ✅ Make model configurable via environment variable
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    # ✅ Use full model resource names
+    gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
@@ -88,13 +86,10 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     error = ""
     for i in range(max_retry):
         try:
-            if conversation:
-                messages = conversation
-            else:
-                messages = [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": chat_prompt}
-                ]
+            messages = conversation if conversation else [
+                {"role": "system", "content": system},
+                {"role": "user", "content": chat_prompt}
+            ]
             response = client.chat.completions.create(
                 model=model,
                 messages=messages,

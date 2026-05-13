@@ -65,8 +65,8 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
-    # ✅ Use full Gemini model resource names with fallback
-    gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
+    # ✅ Use environment variables for model selection
+    gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-1.0-pro")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
@@ -111,11 +111,5 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
         except Exception as oops:
             print('Error communicating with LLM:', oops)
             error = str(oops)
-
-            # 🔄 Fallback: if flash fails, try pro
-            if "NOT_FOUND" in error and model == "models/gemini-1.5-flash":
-                print("⚠️ Falling back to models/gemini-1.5-pro")
-                model = "models/gemini-1.5-pro"
-
             sleep(1)
     raise Exception(f"Error communicating with LLM Endpoint Completion errored more than error: {error}")

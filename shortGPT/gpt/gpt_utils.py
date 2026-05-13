@@ -65,7 +65,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
-    # ✅ Use full model resource names
+    # ✅ Use full Gemini model resource names with fallback
     gemini_model = os.getenv("GEMINI_MODEL", "models/gemini-1.5-flash")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -82,7 +82,6 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
         raise Exception("No OpenAI or Gemini API Key found for LLM request")
 
     max_retry = 5
-    retry = 0
     error = ""
     for i in range(max_retry):
         try:
@@ -100,10 +99,9 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             text = response.choices[0].message.content.strip()
             if remove_nl:
                 text = re.sub(r'\s+', ' ', text)
-            filename = '%s_llm_completion.txt' % time()
-            if not os.path.exists('.logs/gpt_logs'):
-                os.makedirs('.logs/gpt_logs')
-            with open('.logs/gpt_logs/%s' % filename, 'w', encoding='utf-8') as outfile:
+            filename = f"{time()}_llm_completion.txt"
+            os.makedirs('.logs/gpt_logs', exist_ok=True)
+            with open(f'.logs/gpt_logs/{filename}', 'w', encoding='utf-8') as outfile:
                 outfile.write(
                     f"System prompt: ===\n{system}\n===\n"
                     f"Chat prompt: ===\n{chat_prompt}\n===\n"
@@ -111,8 +109,13 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                 )
             return text
         except Exception as oops:
-            retry += 1
             print('Error communicating with LLM:', oops)
             error = str(oops)
+
+            # 🔄 Fallback: if flash fails, try pro
+            if "NOT_FOUND" in error and model == "models/gemini-1.5-flash":
+                print("⚠️ Falling back to models/gemini-1.5-pro")
+                model = "models/gemini-1.5-pro"
+
             sleep(1)
     raise Exception(f"Error communicating with LLM Endpoint Completion errored more than error: {error}")

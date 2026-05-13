@@ -8,7 +8,8 @@ import tiktoken
 import yaml
 
 from shortGPT.config.api_db import ApiKeyManager
-
+from pathlib import Path
+from openai import OpenAI
 
 def num_tokens_from_messages(texts, model="gpt-4o-mini"):
     """Returns the number of tokens used by a list of messages."""
@@ -24,9 +25,9 @@ def num_tokens_from_messages(texts, model="gpt-4o-mini"):
             score += 4 + len(encoding.encode(text))
         return score
     else:
-        raise NotImplementedError(f"""num_tokens_from_messages() is not presently implemented for model {model}.
-        See https://github.com/openai/openai-python/blob/main/chatml.md for information""")
-
+        raise NotImplementedError(
+            f"num_tokens_from_messages() is not presently implemented for model {model}."
+        )
 
 def extract_biggest_json(string):
     json_regex = r"\{(?:[^{}]|(?R))*\}"
@@ -34,7 +35,6 @@ def extract_biggest_json(string):
     if json_objects:
         return max(json_objects, key=len)
     return None
-
 
 def get_first_number(string):
     pattern = r'\b(0|[1-9]|10)\b'
@@ -44,18 +44,14 @@ def get_first_number(string):
     else:
         return None
 
-
 def load_yaml_file(file_path: str) -> dict:
     """Reads and returns the contents of a YAML file as dictionary"""
     return yaml.safe_load(open_file(file_path))
-
 
 def load_json_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         json_data = json.load(f)
     return json_data
-
-from pathlib import Path
 
 def load_local_yaml_prompt(file_path):
     _here = Path(__file__).parent
@@ -63,26 +59,30 @@ def load_local_yaml_prompt(file_path):
     json_template = load_yaml_file(str(_absolute_path))
     return json_template['chat_prompt'], json_template['system_prompt']
 
-
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
         return infile.read()
-from openai import OpenAI
 
 def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_nl=True, conversation=None):
-    openai_key= ApiKeyManager.get_api_key("OPENAI_API_KEY")
+    openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
+
+    # ✅ Make model configurable via environment variable
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
     if gemini_key:
-        client = OpenAI( 
+        client = OpenAI(
             api_key=gemini_key,
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         )
-        model="gemini-2.0-flash-lite-preview-02-05"
+        model = gemini_model
     elif openai_key:
-        client = OpenAI( api_key=openai_key)
-        model="gpt-4o-mini"
+        client = OpenAI(api_key=openai_key)
+        model = openai_model
     else:
         raise Exception("No OpenAI or Gemini API Key found for LLM request")
+
     max_retry = 5
     retry = 0
     error = ""
@@ -101,19 +101,23 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                 max_tokens=max_tokens,
                 temperature=temp,
                 timeout=30
-                )
+            )
             text = response.choices[0].message.content.strip()
             if remove_nl:
-                text = re.sub('\s+', ' ', text)
+                text = re.sub(r'\s+', ' ', text)
             filename = '%s_llm_completion.txt' % time()
             if not os.path.exists('.logs/gpt_logs'):
                 os.makedirs('.logs/gpt_logs')
             with open('.logs/gpt_logs/%s' % filename, 'w', encoding='utf-8') as outfile:
-                outfile.write(f"System prompt: ===\n{system}\n===\n"+f"Chat prompt: ===\n{chat_prompt}\n===\n" + f'RESPONSE:\n====\n{text}\n===\n')
+                outfile.write(
+                    f"System prompt: ===\n{system}\n===\n"
+                    f"Chat prompt: ===\n{chat_prompt}\n===\n"
+                    f"RESPONSE:\n====\n{text}\n===\n"
+                )
             return text
         except Exception as oops:
             retry += 1
-            print('Error communicating with OpenAI:', oops)
+            print('Error communicating with LLM:', oops)
             error = str(oops)
             sleep(1)
     raise Exception(f"Error communicating with LLM Endpoint Completion errored more than error: {error}")

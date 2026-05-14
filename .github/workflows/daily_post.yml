@@ -36,6 +36,19 @@ jobs:
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
+      # ✅ Debug step to confirm Gemini key is present
+      - name: Check Gemini Key Presence
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ GEMINI_API_KEY is empty"
+            exit 1
+          else
+            echo "✅ GEMINI_API_KEY is set"
+            echo "Length: ${#GEMINI_API_KEY}"
+          fi
+
       # ✅ Debug step to show raw Gemini models response
       - name: List Gemini Models (raw)
         env:

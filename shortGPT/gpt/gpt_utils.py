@@ -4,13 +4,11 @@ import re
 import requests
 from time import sleep, time
 
-import openai
 import tiktoken
 import yaml
 
 from shortGPT.config.api_db import ApiKeyManager
 from pathlib import Path
-from openai import OpenAI
 
 def num_tokens_from_messages(texts, model="gpt-4o-mini"):
     try:
@@ -74,48 +72,70 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
-        client = OpenAI(
-            api_key=gemini_key,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
+        # ✅ Use standard Gemini endpoint instead of /openai/
         model = gemini_model or get_valid_gemini_model(gemini_key)
         if not model:
             raise Exception("No valid Gemini model found")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent"
+        headers = {
+            "Authorization": f"Bearer {gemini_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": chat_prompt}
+                    ]
+                }
+            ]
+        }
+
+        max_retry = 5
+        error = ""
+        for i in range(max_retry):
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if remove_nl:
+                    text = re.sub(r'\s+', ' ', text)
+                filename = f"{time()}_llm_completion.txt"
+                os.makedirs('.logs/gpt_logs', exist_ok=True)
+                with open(f'.logs/gpt_logs/{filename}', 'w', encoding='utf-8') as outfile:
+                    outfile.write(
+                        f"System prompt: ===\n{system}\n===\n"
+                        f"Chat prompt: ===\n{chat_prompt}\n===\n"
+                        f"RESPONSE:\n====\n{text}\n===\n"
+                    )
+                return text
+            except Exception as oops:
+                print('Error communicating with Gemini:', oops)
+                error = str(oops)
+                sleep(1)
+        raise Exception(f"Gemini completion failed after retries: {error}")
+
     elif openai_key:
+        from openai import OpenAI
         client = OpenAI(api_key=openai_key)
         model = openai_model
+        messages = conversation if conversation else [
+            {"role": "system", "content": system},
+            {"role": "user", "content": chat_prompt}
+        ]
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temp,
+            timeout=30
+        )
+        text = response.choices[0].message.content.strip()
+        if remove_nl:
+            text = re.sub(r'\s+', ' ', text)
+        return text
+
     else:
         raise Exception("No OpenAI or Gemini API Key found for LLM request")
-
-    max_retry = 5
-    error = ""
-    for i in range(max_retry):
-        try:
-            messages = conversation if conversation else [
-                {"role": "system", "content": system},
-                {"role": "user", "content": chat_prompt}
-            ]
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temp,
-                timeout=30
-            )
-            text = response.choices[0].message.content.strip()
-            if remove_nl:
-                text = re.sub(r'\s+', ' ', text)
-            filename = f"{time()}_llm_completion.txt"
-            os.makedirs('.logs/gpt_logs', exist_ok=True)
-            with open(f'.logs/gpt_logs/{filename}', 'w', encoding='utf-8') as outfile:
-                outfile.write(
-                    f"System prompt: ===\n{system}\n===\n"
-                    f"Chat prompt: ===\n{chat_prompt}\n===\n"
-                    f"RESPONSE:\n====\n{text}\n===\n"
-                )
-            return text
-        except Exception as oops:
-            print('Error communicating with LLM:', oops)
-            error = str(oops)
-            sleep(1)
-    raise Exception(f"Error communicating with LLM Endpoint Completion errored more than error: {error}")

@@ -20,7 +20,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick
+          sudo apt-get install -y ffmpeg imagemagick jq
           sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
 
       - name: Verify FFmpeg installation
@@ -36,12 +36,20 @@ jobs:
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
+      # ✅ Debug step to list available Gemini models
+      - name: List Gemini Models
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          curl -s -H "Authorization: Bearer $GEMINI_API_KEY" \
+               "https://generativelanguage.googleapis.com/v1beta/models" | jq '.models[].name'
+
       - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
-          GEMINI_MODEL: models/gemini-1.0-flash   # replace with valid ID
+          GEMINI_MODEL: models/gemini-1.0-flash   # ✅ replace with a valid ID from the List Gemini Models output
           OPENAI_MODEL: gpt-4o-mini
         run: python run_automation.py

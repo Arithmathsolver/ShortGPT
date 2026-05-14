@@ -50,6 +50,6 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
-          GEMINI_MODEL: models/gemini-1.0-flash   # ✅ replace with a valid ID from the raw output above
+          GEMINI_MODEL: models/gemini-1.0-pro   # ✅ replace with valid ID from raw output
           OPENAI_MODEL: gpt-4o-mini
         run: python run_automation.py

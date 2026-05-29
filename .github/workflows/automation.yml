@@ -42,7 +42,8 @@ jobs:
       - name: Run automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: models/gemini-1.5-flash   # ✅ replace with a valid ID from the raw output above
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}   # maps your secret to the variable
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
         run: python run_automation.py

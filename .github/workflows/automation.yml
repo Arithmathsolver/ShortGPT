@@ -18,7 +18,10 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install google-generativeai   # ✅ add Gemini client library
 
       - name: Check Gemini Key Presence
         env:
@@ -32,17 +35,10 @@ jobs:
             echo "Length: ${#GEMINI_API_KEY}"
           fi
 
-      - name: List Gemini Models (raw)
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          curl -s -H "Authorization: Bearer $GEMINI_API_KEY" \
-               "https://generativelanguage.googleapis.com/v1beta/models"
-
       - name: Run automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: models/gemini-1.5-flash   # ✅ replace with a valid ID from the raw output above
+          GEMINI_MODEL: gemini-1.5-flash   # ✅ set to a valid model ID
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}

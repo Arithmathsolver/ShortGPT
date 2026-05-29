@@ -59,11 +59,11 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
+    # ✅ Use plain model name (no "models/" prefix)
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
-        # ✅ Use official Google client for AQ... keys
         genai.configure(api_key=gemini_key)
         model = genai.GenerativeModel(gemini_model)
 

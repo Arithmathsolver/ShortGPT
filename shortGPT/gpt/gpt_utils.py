@@ -1,14 +1,15 @@
 import json
 import os
 import re
-import requests
 from time import sleep, time
+from pathlib import Path
 
 import tiktoken
 import yaml
+import google.generativeai as genai
 
 from shortGPT.config.api_db import ApiKeyManager
-from pathlib import Path
+
 
 def num_tokens_from_messages(texts, model="gpt-4o-mini"):
     try:
@@ -21,21 +22,26 @@ def num_tokens_from_messages(texts, model="gpt-4o-mini"):
         return sum(4 + len(encoding.encode(text)) for text in texts)
     raise NotImplementedError(f"num_tokens_from_messages() not implemented for {model}")
 
+
 def extract_biggest_json(string):
     json_regex = r"\{(?:[^{}]|(?R))*\}"
     json_objects = re.findall(json_regex, string)
     return max(json_objects, key=len) if json_objects else None
 
+
 def get_first_number(string):
     match = re.search(r'\b(0|[1-9]|10)\b', string)
     return int(match.group()) if match else None
 
+
 def load_yaml_file(file_path: str) -> dict:
     return yaml.safe_load(open_file(file_path))
+
 
 def load_json_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
+
 
 def load_local_yaml_prompt(file_path):
     _here = Path(__file__).parent
@@ -43,63 +49,36 @@ def load_local_yaml_prompt(file_path):
     json_template = load_yaml_file(str(_absolute_path))
     return json_template['chat_prompt'], json_template['system_prompt']
 
+
 def open_file(filepath):
     with open(filepath, 'r', encoding='utf-8') as infile:
         return infile.read()
 
-def get_valid_gemini_model(api_key):
-    """Query Gemini API to list models and return the first available ID."""
-    try:
-        resp = requests.get(
-            "https://generativelanguage.googleapis.com/v1beta/models",
-            headers={"Authorization": f"Bearer {api_key}"}
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        models = [m["name"] for m in data.get("models", [])]
-        if models:
-            print("✅ Available Gemini models:", models)
-            return models[0]  # pick the first one
-    except Exception as e:
-        print("⚠️ Could not list Gemini models:", e)
-    return None
 
 def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_nl=True, conversation=None):
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
-    gemini_model = os.getenv("GEMINI_MODEL")
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
-        # ✅ Use standard Gemini endpoint instead of /openai/
-        model = gemini_model or get_valid_gemini_model(gemini_key)
-        if not model:
-            raise Exception("No valid Gemini model found")
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent"
-        headers = {
-            "Authorization": f"Bearer {gemini_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": chat_prompt}
-                    ]
-                }
-            ]
-        }
+        # ✅ Use official Google client for AQ... keys
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel(gemini_model)
 
         max_retry = 5
         error = ""
         for i in range(max_retry):
             try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=30)
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                response = model.generate_content(
+                    chat_prompt,
+                    generation_config={
+                        "temperature": temp,
+                        "max_output_tokens": max_tokens
+                    }
+                )
+                text = response.text.strip()
                 if remove_nl:
                     text = re.sub(r'\s+', ' ', text)
                 filename = f"{time()}_llm_completion.txt"
@@ -112,7 +91,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                     )
                 return text
             except Exception as oops:
-                print('Error communicating with Gemini:', oops)
+                print("Error communicating with Gemini:", oops)
                 error = str(oops)
                 sleep(1)
         raise Exception(f"Gemini completion failed after retries: {error}")

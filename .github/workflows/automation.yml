@@ -53,7 +53,7 @@ jobs:
       - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-1.5-flash   # ✅ set to a valid Gemini model
+          GEMINI_MODEL: gemini-1.5-flash   # ✅ plain model name, no "models/" prefix
           OPENAI_MODEL: gpt-4o-mini
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}

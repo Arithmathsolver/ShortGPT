@@ -4,24 +4,39 @@ on:
   workflow_dispatch:   # manual trigger
   schedule:
     - cron: "0 12 * * *"   # runs daily at 12:00 UTC
+    - cron: '0 0,5,10,15,20 * * *' # optional: 5 times a day
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick jq
+          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+      - name: Verify FFmpeg installation
+        run: |
+          which ffmpeg
+          ffmpeg -version
+
+      - name: Install Python Requirements
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install google-generativeai   # ✅ add Gemini client library
+          pip install google-generativeai   # ✅ Gemini client library
+
+      - name: Fix Python path
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
       - name: Check Gemini Key Presence
         env:
@@ -35,10 +50,11 @@ jobs:
             echo "Length: ${#GEMINI_API_KEY}"
           fi
 
-      - name: Run automation
+      - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-1.5-flash   # ✅ set to a valid model ID
+          GEMINI_MODEL: gemini-1.5-flash   # ✅ set to a valid Gemini model
+          OPENAI_MODEL: gpt-4o-mini
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}

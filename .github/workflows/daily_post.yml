@@ -32,7 +32,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install google-generativeai   # ✅ Gemini client library
+          pip install google-generativeai==0.5.0   # ✅ pinned Gemini client library
 
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
@@ -52,9 +52,11 @@ jobs:
       - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-1.5-flash   # ✅ set to a valid Gemini model
+          GEMINI_MODEL: gemini-1.5-flash   # ✅ plain model name (no "models/" prefix)
           OPENAI_MODEL: gpt-4o-mini
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
-        run: python run_automation.py
+        run: |
+          echo "Using GEMINI_MODEL=$GEMINI_MODEL"
+          python run_automation.py

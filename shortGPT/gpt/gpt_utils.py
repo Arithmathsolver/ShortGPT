@@ -65,6 +65,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
 
     if gemini_key:
         genai.configure(api_key=gemini_key)
+        print("DEBUG: Using Gemini client library with model =", gemini_model)
         model = genai.GenerativeModel(gemini_model)
 
         max_retry = 5

@@ -53,9 +53,9 @@ jobs:
       - name: Run ShortGPT Automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-1.5-flash   # ✅ plain model name, no "models/" prefix
+          GEMINI_MODEL: gemini-2.5-flash   # ✅ Updated to a live, modern model version
           OPENAI_MODEL: gpt-4o-mini
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets/ELEVENLABS_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }} # ✅ Fixed syntax typo here
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
         run: python run_automation.py

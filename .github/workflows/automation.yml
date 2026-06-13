@@ -8,9 +8,19 @@
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           echo "========================================================="
-          echo "🛠️ CRUSHING STEP 7 AT THE CLASS LEVEL CORE"
+          echo "🧹 FORCING REPOSITORY-WIDE HARDCORE REWRITE PATTERNS"
           echo "========================================================="
           
+          # This command searches EVERY single Python file in your repo and completely 
+          # replaces the crashing AssetDatabase line with a harmless 'None' value assignment.
+          find . -type f -name "*.py" -exec sed -i "s/self._db_background_music_url = AssetDatabase.get_asset_link(self._db_background_music_name)/self._db_background_music_url = None/g" {} +
+          
+          # This backup command catches any variations of the AssetDatabase music lookup line
+          find . -type f -name "*.py" -exec sed -i "s/AssetDatabase.get_asset_link(self._db_background_music_name)/None/g" {} +
+
+          echo "✅ All physical copies of engine files have been forced to bypass Step 7."
+
+          # Force writing your execution runtime script onto the cloud runner machine
           cat << 'EOF' > run_automation.py
 import os
 import sys
@@ -22,33 +32,40 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 from shortGPT.config.api_db import ApiKeyManager
-from shortGPT.engine.facts_short_engine import FactsShortEngine
 from shortGPT.config.asset_db import AssetDatabase
 from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
 
-# =====================================================================
-# 🛡️ GLOBAL CLASS-LEVEL MONKEY PATCH
-# We completely rewrite the internal methods on the framework classes
-# before any engine is even instantiated.
-# =====================================================================
+# Import every potential engine module layout
+import shortGPT.engine.facts_short_engine
+import shortGPT.engine.content_short_engine
+import shortGPT.engine.abstract_content_engine
+from shortGPT.engine.facts_short_engine import FactsShortEngine
+from shortGPT.engine.content_short_engine import ContentShortEngine
+from shortGPT.engine.abstract_content_engine import AbstractContentEngine
+
 def completely_bypass_eleven_labs(self, voice_module=None, voiceModule=None):
     print("🛡️ Core System Protection: ElevenLabs blocked. Using free EdgeTTS voice.")
     return EdgeTTSVoiceModule(voiceName=os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"))
 
 def global_skipped_choose_background_music(self):
-    print("⏩ Step 7 Override Notice: Background music completely skipped globally by request.")
+    print("⏩ EXPLICIT CRITICAL OVERRIDE: Background music completely skipped here!")
     self._db_background_music_url = None
+    self._db_background_music_name = None
 
-# Apply the overrides directly to the base framework classes
+# Apply voice protection everywhere in memory as a secondary layer
 FactsShortEngine.getVoiceModule = completely_bypass_eleven_labs
+ContentShortEngine.getVoiceModule = completely_bypass_eleven_labs
+AbstractContentEngine.getVoiceModule = completely_bypass_eleven_labs
+
 FactsShortEngine._chooseBackgroundMusic = global_skipped_choose_background_music
-# =====================================================================
+ContentShortEngine._chooseBackgroundMusic = global_skipped_choose_background_music
+AbstractContentEngine._chooseBackgroundMusic = global_skipped_choose_background_music
 
 def get_automation_settings():
     return {
         "language": os.getenv("SHORTGPT_LANG", "English"),
         "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"),
-        "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
+        "niche_topic": os.getenv("SHORTGPT_NICHE", "Ancient History Secrets"),
         "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
     }
@@ -61,7 +78,7 @@ def main():
     try:
         AssetDatabase.initialize_db()
         AssetDatabase.sync_local_assets() 
-        print("✅ Asset Database abstraction layers initialized successfully.")
+        print("✅ Asset Database initialized successfully.")
     except Exception as db_err:
         print(f"⚠️ Database initialization notice: {db_err}")
 
@@ -78,14 +95,12 @@ def main():
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
     try:
-        # Initialize engine (it will inherit our class level patches automatically)
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
             facts_type=topic,
             language=language
         )
 
-        # Instance properties safety backup
         content_engine.voiceModule = voice_module
         content_engine._db_background_music_name = None
         content_engine._db_background_music_url = None
@@ -107,5 +122,5 @@ if __name__ == "__main__":
     main()
 EOF
 
-          echo "✅ Framework classes patched globally!"
+          echo "🚀 Starting runtime execution layout..."
           python run_automation.py

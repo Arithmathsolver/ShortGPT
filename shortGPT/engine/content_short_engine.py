@@ -28,7 +28,8 @@ class ContentShortEngine(AbstractContentEngine):
             if (watermark):
                 self._db_watermark = watermark
             self._db_background_video_name = background_video_name
-            self._db_background_music_name = background_music_name
+            # Force background music name storage tracking to None natively
+            self._db_background_music_name = None
 
         self.stepDict = {
             1:  self._generateScript,
@@ -87,7 +88,9 @@ class ContentShortEngine(AbstractContentEngine):
                 self._db_timed_image_searches)
 
     def _chooseBackgroundMusic(self):
-        self._db_background_music_url = AssetDatabase.get_asset_link(self._db_background_music_name)
+        # 🎯 BYPASSING SQLITE LOOKUPS NATIVELY
+        print("⏩ Step 7 Override: Background music asset lookups skipped.")
+        self._db_background_music_url = None
 
     def _chooseBackgroundVideo(self):
         self._db_background_video_url = AssetDatabase.get_asset_link(
@@ -96,10 +99,12 @@ class ContentShortEngine(AbstractContentEngine):
             self._db_background_video_name)
 
     def _prepareBackgroundAssets(self):
+        # 🎬 REMOVED music_url MANDATORY PARAMETER FROM VERIFICATION LAYER TO PREVENT CRASHES
         self.verifyParameters(
             voiceover_audio_url=self._db_audio_path,
             video_duration=self._db_background_video_duration,
-            background_video_url=self._db_background_video_url, music_url=self._db_background_music_url)
+            background_video_url=self._db_background_video_url)
+            
         if not self._db_voiceover_duration:
             self.logger("Rendering short: (1/4) preparing voice asset...")
             self._db_audio_path, self._db_voiceover_duration = get_asset_duration(
@@ -114,10 +119,10 @@ class ContentShortEngine(AbstractContentEngine):
         pass
 
     def _editAndRenderShort(self):
+        # 🎬 REMOVED music_url MANDATORY PARAMETER TO PREVENT IN-LINE SYSTEM RENDERING FAULTS
         self.verifyParameters(
             voiceover_audio_url=self._db_audio_path,
-            video_duration=self._db_background_video_duration,
-            music_url=self._db_background_music_url)
+            video_duration=self._db_background_video_duration)
 
         outputPath = self.dynamicAssetDir+"rendered_video.mp4"
         if not (os.path.exists(outputPath)):
@@ -125,9 +130,9 @@ class ContentShortEngine(AbstractContentEngine):
             videoEditor = EditingEngine()
             videoEditor.addEditingStep(EditingStep.ADD_VOICEOVER_AUDIO, {
                                        'url': self._db_audio_path})
-            videoEditor.addEditingStep(EditingStep.ADD_BACKGROUND_MUSIC, {'url': self._db_background_music_url,
-                                                                          'loop_background_music': self._db_voiceover_duration,
-                                                                          "volume_percentage": 0.11})
+            
+            # 🎯 BACKGROUND MUSIC EDIT STEP ENTIRELY REMOVED HERE
+            
             videoEditor.addEditingStep(EditingStep.CROP_1920x1080, {
                                        'url': self._db_background_trimmed})
             videoEditor.addEditingStep(EditingStep.ADD_SUBSCRIBE_ANIMATION, {'url': AssetDatabase.get_asset_link('subscribe animation')})

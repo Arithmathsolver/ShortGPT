@@ -1,71 +1,64 @@
-- name: Run ShortGPT Automation
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.5-flash
-          OPENAI_MODEL: gpt-4o-mini
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
-        run: |
-          echo "========================================================="
-          echo "🧹 FORCING REPOSITORY-WIDE HARDCORE REWRITE PATTERNS"
-          echo "========================================================="
-          
-          # This command searches EVERY single Python file in your repo and completely 
-          # replaces the crashing AssetDatabase line with a harmless 'None' value assignment.
-          find . -type f -name "*.py" -exec sed -i "s/self._db_background_music_url = AssetDatabase.get_asset_link(self._db_background_music_name)/self._db_background_music_url = None/g" {} +
-          
-          # This backup command catches any variations of the AssetDatabase music lookup line
-          find . -type f -name "*.py" -exec sed -i "s/AssetDatabase.get_asset_link(self._db_background_music_name)/None/g" {} +
-
-          echo "✅ All physical copies of engine files have been forced to bypass Step 7."
-
-          # Force writing your execution runtime script onto the cloud runner machine
-          cat << 'EOF' > run_automation.py
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 
+# Ensure local repository path layouts take precedence in memory
 _here = Path(__file__).parent.resolve()
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
+# =====================================================================
+# 🛡️ ANTI-429 GEMINI RATE LIMIT MONKEY PATCH
+# This intercepts ShortGPT's Gemini client calls and automatically
+# backs off/retries if the free tier quota (15 RPM) is exceeded.
+# =====================================================================
+try:
+    from shortGPT.gpt import gpt_utils
+    
+    # Store the original function reference
+    if hasattr(gpt_utils, 'generate_text_gemini') and not hasattr(gpt_utils, '_original_generate_text_gemini'):
+        gpt_utils._original_generate_text_gemini = gpt_utils.generate_text_gemini
+        
+        def rate_limited_gemini_wrapper(*args, **kwargs):
+            max_retries = 5
+            base_delay = 32  # Gemini free tier resets per-minute quotas every 30-60 seconds
+            
+            for attempt in range(max_retries):
+                try:
+                    # Execute the standard generation call
+                    return gpt_utils._original_generate_text_gemini(*args, **kwargs)
+                except Exception as e:
+                    err_msg = str(e)
+                    # Check if the error message indicates a Rate Limit / Quota Exceeded issue
+                    if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg:
+                        print(f"\n⚠️ [Gemini Rate Limit Detected]: Exceeded free tier requests per minute.")
+                        print(f"⏳ Sleeping for {base_delay} seconds to clear the API quota windows... (Attempt {attempt + 1}/{max_retries})")
+                        time.sleep(base_delay)
+                        continue
+                    # If it's a different kind of error, raise it immediately
+                    raise e
+            # Final fallback call if all retries hit a wall
+            return gpt_utils._original_generate_text_gemini(*args, **kwargs)
+            
+        # Swap the functions in system memory globally
+        gpt_utils.generate_text_gemini = rate_limited_gemini_wrapper
+        print("✅ Core Optimization: Intelligent Gemini 429 backoff protections active.")
+except Exception as patch_err:
+    print(f"⚠️ Rate limit patching notice: {patch_err}")
+# =====================================================================
+
 from shortGPT.config.api_db import ApiKeyManager
 from shortGPT.config.asset_db import AssetDatabase
 from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
-
-# Import every potential engine module layout
-import shortGPT.engine.facts_short_engine
-import shortGPT.engine.content_short_engine
-import shortGPT.engine.abstract_content_engine
 from shortGPT.engine.facts_short_engine import FactsShortEngine
-from shortGPT.engine.content_short_engine import ContentShortEngine
-from shortGPT.engine.abstract_content_engine import AbstractContentEngine
-
-def completely_bypass_eleven_labs(self, voice_module=None, voiceModule=None):
-    print("🛡️ Core System Protection: ElevenLabs blocked. Using free EdgeTTS voice.")
-    return EdgeTTSVoiceModule(voiceName=os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"))
-
-def global_skipped_choose_background_music(self):
-    print("⏩ EXPLICIT CRITICAL OVERRIDE: Background music completely skipped here!")
-    self._db_background_music_url = None
-    self._db_background_music_name = None
-
-# Apply voice protection everywhere in memory as a secondary layer
-FactsShortEngine.getVoiceModule = completely_bypass_eleven_labs
-ContentShortEngine.getVoiceModule = completely_bypass_eleven_labs
-AbstractContentEngine.getVoiceModule = completely_bypass_eleven_labs
-
-FactsShortEngine._chooseBackgroundMusic = global_skipped_choose_background_music
-ContentShortEngine._chooseBackgroundMusic = global_skipped_choose_background_music
-AbstractContentEngine._chooseBackgroundMusic = global_skipped_choose_background_music
 
 def get_automation_settings():
     return {
         "language": os.getenv("SHORTGPT_LANG", "English"),
-        "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"),
-        "niche_topic": os.getenv("SHORTGPT_NICHE", "Ancient History Secrets"),
+        "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
+        "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
         "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
     }
@@ -78,34 +71,41 @@ def main():
     try:
         AssetDatabase.initialize_db()
         AssetDatabase.sync_local_assets() 
-        print("✅ Asset Database initialized successfully.")
+        print("✅ Asset Database abstraction layers synchronized successfully.")
     except Exception as db_err:
-        print(f"⚠️ Database initialization notice: {db_err}")
+        print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
 
     settings = get_automation_settings()
     topic = settings["niche_topic"]
     language = settings["language"]
     voice_choice = settings["voice"]
 
+    print(f"\n📋 Pipeline Execution Settings:")
+    print(f"  • Selected Niche Category : {topic}")
+    print(f"  • Target Native Language  : {language}")
+    print(f"  • TTS Voice Profile Config: {voice_choice}")
+    print(f"  • Batch Run Projections   : {settings['channels_amount']} video(s)\n")
+
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
     if not gemini_key:
-        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured.")
+        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
         sys.exit(1)
 
+    print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
+
+    print(f"--- Starting Generation for: {topic} ---")
 
     try:
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
             facts_type=topic,
+            background_video_name="ocean", 
             language=language
         )
 
-        content_engine.voiceModule = voice_module
-        content_engine._db_background_music_name = None
-        content_engine._db_background_music_url = None
-
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
+        
         for step_num, step_logs in content_engine.makeContent():
             print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
 
@@ -115,12 +115,11 @@ def main():
 
     except Exception as engine_failure:
         print("\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
+        print(f"Error Details: {str(engine_failure)}")
+        print("\n--- Python Traceback Log Stack ---")
         traceback.print_exc()
+        print("----------------------------------")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
-EOF
-
-          echo "🚀 Starting runtime execution layout..."
-          python run_automation.py

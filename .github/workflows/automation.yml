@@ -36,7 +36,34 @@ def main():
     # Authenticate asset metadata databases
     try:
         AssetDatabase.initialize_db()
-        print("✅ Asset Database abstraction layers initialized successfully.")
+        
+        # 1. Run the default synchronization check
+        AssetDatabase.sync_local_assets() 
+        
+        # 2. ✅ FORCE REGISTRATION: Explicitly target the exact path where your music file lives
+        from shortGPT.config.asset_db import AssetType
+        music_asset_name = 'the_mountain-background-music-159125'
+        
+        try:
+            AssetDatabase.get_asset_link(music_asset_name)
+            print(f"✅ Track '{music_asset_name}' found in database.")
+        except Exception:
+            print(f"⚠️ Track '{music_asset_name}' missing from default sync folder. Manually registering from repo assets...")
+            
+            # This structures the exact internal file path dynamically inside the GitHub runner workspace
+            local_music_path = os.path.join(
+                os.path.dirname(__file__), 
+                "shortGPT", "assets", "music", f"{music_asset_name}.mp3"
+            )
+            
+            AssetDatabase.add_local_asset(
+                name=music_asset_name,
+                asset_type=AssetType.BACKGROUND_MUSIC,
+                path=local_music_path
+            )
+            print(f"✅ Successfully mapped local asset file path to database: {local_music_path}")
+            
+        print("✅ Asset Database abstraction layers initialized and synchronized successfully.")
     except Exception as db_err:
         print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
 

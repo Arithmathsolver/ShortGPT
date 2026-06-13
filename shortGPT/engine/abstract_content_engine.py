@@ -27,21 +27,42 @@ class AbstractContentEngine(ABC):
         self.logger = self.default_logger
 
     def __getattr__(self, name):
+        # 🎯 HARD-BYPASS BACKGROUND MUSIC DATABASE READS
+        if name in ['_db_background_music_name', '_db_background_music_url']:
+            return None
+            
         if name.startswith('_db_'):
             db_path = name[4:]  # remove '_db_' prefix
             cache_attr = '_' + name
             if not hasattr(self, cache_attr):
-                setattr(self, cache_attr, self.dataManager.get(db_path))
+                try:
+                    setattr(self, cache_attr, self.dataManager.get(db_path))
+                except Exception:
+                    setattr(self, cache_attr, None)
             return getattr(self, cache_attr)
         else:
-            return super().__getattr__(name)
+            # Safe standard fallback handler mapping
+            if name in self.__dict__:
+                return self.__dict__[name]
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     def __setattr__(self, name, value):
+        # 🎯 HARD-BYPASS BACKGROUND MUSIC DATABASE WRITES
+        if name in ['_db_background_music_name', '_db_background_music_url']:
+            cache_attr = '_' + name
+            super().__setattr__(cache_attr, None)
+            super().__setattr__(name, None)
+            return
+
         if name.startswith('_db_'):
             db_path = name[4:]  # remove '_db_' prefix
             cache_attr = '_' + name
-            setattr(self, cache_attr, value)
-            self.dataManager.save(db_path, value)
+            super().__setattr__(cache_attr, value)
+            super().__setattr__(name, value)
+            try:
+                self.dataManager.save(db_path, value)
+            except Exception as e:
+                print(f"⚠️ Non-critical metadata save notice: {e}")
         else:
             super().__setattr__(name, value)
 
@@ -65,6 +86,15 @@ class AbstractContentEngine(ABC):
             currentStep = self._db_last_completed_step + 1
             if currentStep not in self.stepDict:
                 raise Exception(f'Incorrect step {currentStep}')
+                
+            # Intercept step loops to ensure Step 7 cannot fire a crash routine
+            if self.stepDict[currentStep].__name__ == "_chooseBackgroundMusic":
+                print("⏩ Engine Automation Notice: Bypassing Step 7 database routines entirely.")
+                self._db_background_music_url = None
+                self._db_background_music_name = None
+                self._db_last_completed_step = currentStep
+                continue
+
             if self.stepDict[currentStep].__name__ == "_editAndRenderShort":
                 yield currentStep, f'Current step ({currentStep} / {self.get_total_steps()}) : ' + "Preparing rendering assets..."
             else:

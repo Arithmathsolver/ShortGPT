@@ -1,61 +1,94 @@
-name: Daily YouTube Automation
+import os
+import sys
+import traceback
+from pathlib import Path
 
-on:
-  workflow_dispatch:   # manual trigger
-  schedule:
-    - cron: "0 12 * * *"   # runs daily at 12:00 UTC
-    - cron: '0 0,5,10,15,20 * * *' # optional: 5 times a day
+# Force tracking path configurations
+_here = Path(__file__).parent.resolve()
+if str(_here) not in sys.path:
+    sys.path.insert(0, str(_here))
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
+from shortGPT.config.api_db import ApiKeyManager
+from shortGPT.engine.facts_short_engine import FactsShortEngine
+from shortGPT.config.asset_db import AssetDatabase
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+# ✅ Swap the module initialization framework to Microsoft Edge
+from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick jq
-          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+def get_automation_settings():
+    """
+    Loads automated parameters dynamically, falling back to safe structural defaults 
+    if no external batch JSON/YAML is passed to the runtime environment.
+    """
+    return {
+        "language": os.getenv("SHORTGPT_LANG", "English"),
+        "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), # ✅ Premium Edge Voice
+        "niche_topic": os.getenv("SHORTGPT_NICHE", "Ancient History Secrets"),
+        "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
+        "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
+    }
 
-      - name: Verify FFmpeg installation
-        run: |
-          which ffmpeg
-          ffmpeg -version
+def main():
+    print("=========================================================")
+    print("🚀 STARTING AUTOMATED SHORTGPT MEDIA PIPELINE GENERATION ")
+    print("=========================================================")
 
-      - name: Install Python Requirements
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install google-generativeai==0.5.0   # ✅ pin Gemini client library
+    # Authenticate asset metadata databases
+    try:
+        AssetDatabase.initialize_db()
+        print("✅ Asset Database abstraction layers initialized successfully.")
+    except Exception as db_err:
+        print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
 
-      - name: Fix Python path
-        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
+    # Load full environment configurations
+    settings = get_automation_settings()
+    topic = settings["niche_topic"]
+    language = settings["language"]
+    voice_choice = settings["voice"]
 
-      - name: Check Gemini Key Presence
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "❌ GEMINI_API_KEY is empty"
-            exit 1
-          else
-            echo "✅ GEMINI_API_KEY is set"
-            echo "Length: ${#GEMINI_API_KEY}"
-          fi
+    print(f"\n📋 Pipeline Execution Settings:")
+    print(f"  • Selected Niche Category : {topic}")
+    print(f"  • Target Native Language  : {language}")
+    print(f"  • TTS Voice Profile Config: {voice_choice}")
+    print(f"  • Batch Run Projections   : {settings['channels_amount']} video(s)\n")
 
-      - name: Run ShortGPT Automation
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.5-flash   # ✅ Updated to a live, modern model version
-          OPENAI_MODEL: gpt-4o-mini
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }} # ✅ Fixed syntax typo here
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
-        run: python run_automation.py
+    # Verify asset api credentials for critical layers (Gemini/Pexels)
+    gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
+    if not gemini_key:
+        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
+        sys.exit(1)
+
+    print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
+    # ✅ Setup Edge Module without requiring ElevenLabs API authentication keys
+    voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
+
+    print(f"--- Starting Generation for: {topic} ---")
+
+    try:
+        # Initialize full-scale production content rendering engine pipeline
+        content_engine = FactsShortEngine(
+            voice_module=voice_module,
+            facts_type=topic,
+            language=language
+        )
+
+        print("🔄 Executing ShortGPT core processing engine loop blocks...")
+        
+        # Core pipeline engine generator loop execution tracking
+        for step_num, step_logs in content_engine.makeContent():
+            print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+
+        print("\n=========================================================")
+        print("🎉 SUCCESS: Short Video Project compiled and rendered!")
+        print("=========================================================")
+
+    except Exception as engine_failure:
+        print("\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
+        print(f"Error Details: {str(engine_failure)}")
+        print("\n--- Python Traceback Log Stack ---")
+        traceback.print_exc()
+        print("----------------------------------")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

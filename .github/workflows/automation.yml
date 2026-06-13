@@ -8,17 +8,24 @@
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           echo "========================================================="
-          echo "🛠️ FIXING ENGINE KEYWORDS AND BLOCKING ELEVENLABS RE-RUNS"
+          echo "🛠️ BLOCKING ELEVENLABS FROM THE ENTIRE FRAMEWORK CORE"
           echo "========================================================="
           
-          # Force writing your exact current Python script onto the cloud server instance
+          # 1. Directly patch ShortGPT's internal engine file to force EdgeTTS everywhere
+          ENGINE_FILE="shortGPT/engine/content_short_engine.py"
+          if [ -f "$ENGINE_FILE" ]; then
+            echo "Patching internal framework engine files..."
+            # Replace any internal ElevenLabs voice module calls with EdgeTTSVoiceModule
+            sed -i "s/ElevenLabsVoiceModule/EdgeTTSVoiceModule/g" "$ENGINE_FILE" 2>/dev/null || true
+          fi
+
+          # 2. Force-write your automated runtime script onto the runner machine
           cat << 'EOF' > run_automation.py
 import os
 import sys
 import traceback
 from pathlib import Path
 
-# Force tracking path configurations
 _here = Path(__file__).parent.resolve()
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
@@ -26,18 +33,25 @@ if str(_here) not in sys.path:
 from shortGPT.config.api_db import ApiKeyManager
 from shortGPT.engine.facts_short_engine import FactsShortEngine
 from shortGPT.config.asset_db import AssetDatabase
-
-# ✅ Swap the module initialization framework to Microsoft Edge
 from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
 
+# =====================================================================
+# 🛡️ THE BULLETPROOF AUDIO OVERRIDE
+# We redefine the internal method inside the framework to completely 
+# banish ElevenLabs. It will now ONLY return your EdgeTTS voice.
+# =====================================================================
+def completely_bypass_eleven_labs(self, voice_module=None, voiceModule=None):
+    print("🛡️ Core System Protection: ElevenLabs blocked. Using free EdgeTTS voice.")
+    return EdgeTTSVoiceModule(voiceName=os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"))
+
+# Force ShortGPT to use our secure function instead of its default voice initializer
+FactsShortEngine.getVoiceModule = completely_bypass_eleven_labs
+# =====================================================================
+
 def get_automation_settings():
-    """
-    Loads automated parameters dynamically, falling back to safe structural defaults 
-    if no external batch JSON/YAML is passed to the runtime environment.
-    """
     return {
         "language": os.getenv("SHORTGPT_LANG", "English"),
-        "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), # ✅ Premium Edge Voice
+        "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"),
         "niche_topic": os.getenv("SHORTGPT_NICHE", "Ancient History Secrets"),
         "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
@@ -48,68 +62,49 @@ def main():
     print("🚀 STARTING AUTOMATED SHORTGPT MEDIA PIPELINE GENERATION ")
     print("=========================================================")
 
-    # Authenticate asset metadata databases
     try:
         AssetDatabase.initialize_db()
-        
-        # 1. Run the default synchronization check
         AssetDatabase.sync_local_assets() 
-        
-        print("✅ Asset Database abstraction layers initialized and synchronized successfully.")
+        print("✅ Asset Database abstraction layers initialized successfully.")
     except Exception as db_err:
-        print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
+        print(f"⚠️ Database initialization notice: {db_err}")
 
-    # Load full environment configurations
     settings = get_automation_settings()
     topic = settings["niche_topic"]
     language = settings["language"]
     voice_choice = settings["voice"]
 
-    print(f"\n📋 Pipeline Execution Settings:")
-    print(f"  • Selected Niche Category : {topic}")
-    print(f"  • Target Native Language  : {language}")
-    print(f"  • TTS Voice Profile Config: {voice_choice}")
-    print(f"  • Batch Run Projections   : {settings['channels_amount']} video(s)\n")
-
-    # Verify asset api credentials for critical layers (Gemini/Pexels)
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
     if not gemini_key:
-        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
+        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured.")
         sys.exit(1)
 
-    print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
+    # Instantiate the secure Edge Voice Module
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
-    print(f"--- Starting Generation for: {topic} ---")
-
     try:
-        # 🎬 FIXED KEYWORD ARGUMENT: voiceModule (capital M) instead of voice_module
+        # Initialize engine with safe mappings
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
             facts_type=topic,
             language=language
         )
 
-        # =====================================================================
-        # ✅ THE BACKUP VOICE OVERRIDE PATCH
-        # =====================================================================
-        print("🛠️ Locking EdgeTTS module properties on core variables...")
+        # Force property backup directly on the active instance
         content_engine.voiceModule = voice_module
-        
+        content_engine.voice_module = voice_module
+
+        # 🎯 THE MUSIC BYPASS OVERRIDE
         content_engine._db_background_music_name = None
         content_engine._db_background_music_url = None
         
-        # Overwrite the internal method on our specific running object to a harmless skip function
         def skipped_choose_background_music():
             print("⏩ Step 7 Notice: Background music skipped entirely by request.")
             content_engine._db_background_music_url = None
 
         content_engine._chooseBackgroundMusic = skipped_choose_background_music
-        # =====================================================================
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
-        
-        # Core pipeline engine generator loop execution tracking
         for step_num, step_logs in content_engine.makeContent():
             print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
 
@@ -118,17 +113,13 @@ def main():
         print("=========================================================")
 
     except Exception as engine_failure:
-        print("\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
-        print(f"Error Details: {str(engine_failure)}")
-        print("\n--- Python Traceback Log Stack ---")
+        print(f"\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
         traceback.print_exc()
-        print("----------------------------------")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
 EOF
 
-          echo "✅ run_automation.py successfully forced on runner machine!"
-          echo "Using GEMINI_MODEL=$GEMINI_MODEL"
+          echo "✅ Framework patched and run_automation.py secure execution forced!"
           python run_automation.py

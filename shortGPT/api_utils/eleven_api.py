@@ -51,10 +51,20 @@ class ElevenLabsAPI:
     def generate_voice(self, text, character, filename, stability=0.2, clarity=0.1):
         '''Generate a voice'''
         
-        # ✅ FIX: Automatically switch from missing 'Rachel' voice to an active one (e.g., 'Adam')
-        if character == 'Rachel' and 'Rachel' not in self.voices:
-            print("⚠️ Voice 'Rachel' not found. Falling back to 'Adam'")
-            character = 'Adam'
+        # ✅ FIX: Handle descriptive voice names dynamically
+        if character not in self.voices:
+            # First, check if any available voice name starts with the character name requested
+            matched_voice = next((v for v in self.voices.keys() if v.startswith(character)), None)
+            
+            if matched_voice:
+                print(f"⚠️ Voice '{character}' matched with descriptive name: '{matched_voice}'")
+                character = matched_voice
+            else:
+                # If completely missing, grab the very first available voice from the account list
+                fallback_voice = list(self.voices.keys())[0] if self.voices else None
+                if fallback_voice:
+                    print(f"⚠️ Voice '{character}' not found. Falling back to active voice: '{fallback_voice}'")
+                    character = fallback_voice
 
         if character not in self.voices:
             raise ValueError(

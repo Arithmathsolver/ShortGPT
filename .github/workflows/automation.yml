@@ -10,43 +10,59 @@ if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
 # =====================================================================
-# 🛡️ ANTI-429 GEMINI RATE LIMIT MONKEY PATCH
-# This intercepts ShortGPT's Gemini client calls and automatically
-# backs off/retries if the free tier quota (15 RPM) is exceeded.
+# 🛡️ SMART GEMINI-TO-GROQ FAILOVER & RATE LIMIT MONKEY PATCH
+# This protects your pipeline. If Gemini hits a per-minute or a 
+# hard daily limit, it shifts requests instantly to Groq's open-source 
+# OpenAI-compatible API endpoint layout.
 # =====================================================================
 try:
     from shortGPT.gpt import gpt_utils
+    from shortGPT.gpt.gpt_utils import gpt3_5_turbo_completion
     
-    # Store the original function reference
-    if hasattr(gpt_utils, 'generate_text_gemini') and not hasattr(gpt_utils, '_original_generate_text_gemini'):
+    # Check if we have already patched to prevent endless recursion loops
+    if hasattr(gpt_utils, 'generate_text_gemini') and not hasattr(gpt_utils, '_fallback_active'):
+        gpt_utils._fallback_active = True
         gpt_utils._original_generate_text_gemini = gpt_utils.generate_text_gemini
         
-        def rate_limited_gemini_wrapper(*args, **kwargs):
-            max_retries = 5
-            base_delay = 32  # Gemini free tier resets per-minute quotas every 30-60 seconds
+        def smart_failover_gemini_wrapper(prompt, system_prompt=None):
+            max_retries = 3
+            base_delay = 5  # Quick buffer for minor network hiccups
             
             for attempt in range(max_retries):
                 try:
-                    # Execute the standard generation call
-                    return gpt_utils._original_generate_text_gemini(*args, **kwargs)
+                    # 1. Try running Gemini normally
+                    return gpt_utils._original_generate_text_gemini(prompt, system_prompt)
                 except Exception as e:
                     err_msg = str(e)
-                    # Check if the error message indicates a Rate Limit / Quota Exceeded issue
-                    if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg:
-                        print(f"\n⚠️ [Gemini Rate Limit Detected]: Exceeded free tier requests per minute.")
-                        print(f"⏳ Sleeping for {base_delay} seconds to clear the API quota windows... (Attempt {attempt + 1}/{max_retries})")
+                    
+                    # 2. Check if it's a daily limit wall or total exhaust block
+                    if "Quota exceeded" in err_msg or "GenerateRequestsPerDay" in err_msg or "ResourceExhausted" in err_msg:
+                        print("\n🛑 [GEMINI HARD LIMIT HIT]: Daily 20-request free cap exceeded.")
+                        print("🔄 FALLBACK INITIATED: Routing text request through Groq API layout instead...")
+                        
+                        # Pack prompts for ShortGPT's built-in OpenAI function layer
+                        combined_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+                        return gpt3_5_turbo_completion(combined_prompt)
+                        
+                    # 3. Handle a standard 429 per-minute request limit burst
+                    elif "429" in err_msg:
+                        print(f"\n⚠️ [Gemini Minute Spike]: Sleeping {base_delay}s... (Attempt {attempt + 1}/{max_retries})")
                         time.sleep(base_delay)
                         continue
-                    # If it's a different kind of error, raise it immediately
+                        
+                    # If it's an unrelated logic error, pass it upward
                     raise e
-            # Final fallback call if all retries hit a wall
-            return gpt_utils._original_generate_text_gemini(*args, **kwargs)
+                    
+            # Ultimate failover if the retry loops burn out completely
+            print("\n🔄 [EMERGENCY OVERRIDE]: Exhausted Gemini retries. Pushing to Groq...")
+            combined_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+            return gpt3_5_turbo_completion(combined_prompt)
             
-        # Swap the functions in system memory globally
-        gpt_utils.generate_text_gemini = rate_limited_gemini_wrapper
-        print("✅ Core Optimization: Intelligent Gemini 429 backoff protections active.")
+        # Swap the functions in live system memory globally
+        gpt_utils.generate_text_gemini = smart_failover_gemini_wrapper
+        print("✅ Core Optimization: Gemini-to-Groq daily failover architecture engaged.")
 except Exception as patch_err:
-    print(f"⚠️ Rate limit patching notice: {patch_err}")
+    print(f"⚠️ Failover routing patch notice: {patch_err}")
 # =====================================================================
 
 from shortGPT.config.api_db import ApiKeyManager

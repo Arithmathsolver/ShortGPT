@@ -92,11 +92,13 @@ def main():
         )
 
         # =====================================================================
-        # ✅ THE ULTIMATE BACKGROUND MUSIC BYPASS PATCH
-        # Force-assign None to music fields and intercept Step 7 completely.
-        # This completely stops the engine from executing any SQLite lookups.
+        # ✅ THE CRITICAL EDGETTS & BACKGROUND MUSIC BYPASS PATCH
+        # Force-assign the Edge module tracking layers back into the active engine properties
+        # to ensure the ElevenLabs API fallback handler is ignored completely.
         # =====================================================================
-        print("🛠️ Bypassing Step 7: Overriding background music selection module...")
+        print("🛠️ Injecting EdgeTTS module overrides into execution engine context...")
+        content_engine.voiceModule = voice_module
+        
         content_engine._db_background_music_name = None
         content_engine._db_background_music_url = None
         

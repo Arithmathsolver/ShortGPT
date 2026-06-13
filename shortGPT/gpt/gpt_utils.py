@@ -59,14 +59,19 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
 
-    # ✅ Use plain model name (no "models/" prefix)
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    # ✅ Updated default to an active, modern model version
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if gemini_key:
         genai.configure(api_key=gemini_key)
         print("DEBUG: Using Gemini client library with model =", gemini_model)
-        model = genai.GenerativeModel(gemini_model)
+        
+        # ✅ system_instruction is passed during model instantiation in google-generativeai
+        model = genai.GenerativeModel(
+            model_name=gemini_model,
+            system_instruction=system if system else None
+        )
 
         max_retry = 5
         error = ""

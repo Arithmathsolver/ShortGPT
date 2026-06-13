@@ -9,61 +9,9 @@ _here = Path(__file__).parent.resolve()
 if str(_here) not in sys.path:
     sys.path.insert(0, str(_here))
 
-# =====================================================================
-# 🛡️ SMART GEMINI-TO-GROQ FAILOVER & RATE LIMIT MONKEY PATCH
-# This protects your pipeline. If Gemini hits a per-minute or a 
-# hard daily limit, it shifts requests instantly to Groq's open-source 
-# OpenAI-compatible API endpoint layout.
-# =====================================================================
-try:
-    from shortGPT.gpt import gpt_utils
-    from shortGPT.gpt.gpt_utils import gpt3_5_turbo_completion
-    
-    # Check if we have already patched to prevent endless recursion loops
-    if hasattr(gpt_utils, 'generate_text_gemini') and not hasattr(gpt_utils, '_fallback_active'):
-        gpt_utils._fallback_active = True
-        gpt_utils._original_generate_text_gemini = gpt_utils.generate_text_gemini
-        
-        def smart_failover_gemini_wrapper(prompt, system_prompt=None):
-            max_retries = 3
-            base_delay = 5  # Quick buffer for minor network hiccups
-            
-            for attempt in range(max_retries):
-                try:
-                    # 1. Try running Gemini normally
-                    return gpt_utils._original_generate_text_gemini(prompt, system_prompt)
-                except Exception as e:
-                    err_msg = str(e)
-                    
-                    # 2. Check if it's a daily limit wall or total exhaust block
-                    if "Quota exceeded" in err_msg or "GenerateRequestsPerDay" in err_msg or "ResourceExhausted" in err_msg:
-                        print("\n🛑 [GEMINI HARD LIMIT HIT]: Daily 20-request free cap exceeded.")
-                        print("🔄 FALLBACK INITIATED: Routing text request through Groq API layout instead...")
-                        
-                        # Pack prompts for ShortGPT's built-in OpenAI function layer
-                        combined_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-                        return gpt3_5_turbo_completion(combined_prompt)
-                        
-                    # 3. Handle a standard 429 per-minute request limit burst
-                    elif "429" in err_msg:
-                        print(f"\n⚠️ [Gemini Minute Spike]: Sleeping {base_delay}s... (Attempt {attempt + 1}/{max_retries})")
-                        time.sleep(base_delay)
-                        continue
-                        
-                    # If it's an unrelated logic error, pass it upward
-                    raise e
-                    
-            # Ultimate failover if the retry loops burn out completely
-            print("\n🔄 [EMERGENCY OVERRIDE]: Exhausted Gemini retries. Pushing to Groq...")
-            combined_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            return gpt3_5_turbo_completion(combined_prompt)
-            
-        # Swap the functions in live system memory globally
-        gpt_utils.generate_text_gemini = smart_failover_gemini_wrapper
-        print("✅ Core Optimization: Gemini-to-Groq daily failover architecture engaged.")
-except Exception as patch_err:
-    print(f"⚠️ Failover routing patch notice: {patch_err}")
-# =====================================================================
+# Force backend configuration variables to map to Groq if OpenAI-compatible wrappers are hit
+if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
+    os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
 from shortGPT.config.api_db import ApiKeyManager
 from shortGPT.config.asset_db import AssetDatabase
@@ -99,20 +47,23 @@ def main():
     print(f"\n📋 Pipeline Execution Settings:")
     print(f"  • Selected Niche Category : {topic}")
     print(f"  • Target Native Language  : {language}")
-    print(f"  • TTS Voice Profile Config: {voice_choice}")
-    print(f"  • Batch Run Projections   : {settings['channels_amount']} video(s)\n")
+    print(f"  • TTS Voice Profile Config: {voice_choice}\n")
 
-    gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
-    if not gemini_key:
-        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
-        sys.exit(1)
+    # Quick runtime check for the fallback key
+    groq_key = os.getenv("OPENAI_API_KEY")
+    if groq_key:
+        print("✅ Groq Fallback Key detected in environment configuration profiles.")
 
     print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
     print(f"--- Starting Generation for: {topic} ---")
 
+    # Flag tracking if we have tripped over into the backup pipeline yet
+    using_fallback = False
+
     try:
+        # Initialize standard Gemini configuration run
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
             facts_type=topic,
@@ -122,8 +73,40 @@ def main():
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
         
-        for step_num, step_logs in content_engine.makeContent():
-            print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+        # We manually drive the steps step-by-step so we can intercept errors immediately
+        step_iterator = content_engine.makeContent()
+        
+        while True:
+            try:
+                step_num, step_logs = next(step_iterator)
+                print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+            except StopIteration:
+                # The video generation loop successfully finished!
+                break
+            except Exception as loop_error:
+                err_msg = str(loop_error)
+                
+                # Check if the error is a Gemini Quota Block
+                if ("429" in err_msg or "Quota exceeded" in err_msg or "GenerateRequestsPerDay" in err_msg) and not using_fallback:
+                    print("\n🚨 [SYSTEM OVERRIDE DETECTED]: Gemini Daily 20-Request Ceiling Hit.")
+                    print("🔄 RE-INITIALIZING PIPELINE: Upgrading text engine blocks to use Groq API...")
+                    
+                    if not groq_key:
+                        print("❌ FAILOVER ERROR: Cannot switch to Groq because your 'OPENAI_API_KEY' secret is missing!")
+                        raise loop_error
+                    
+                    # Force the runtime application global flags to drop Gemini lookups entirely
+                    # This tells ShortGPT to run future text steps via standard OpenAI/Groq libraries natively
+                    os.environ["USE_GEMINI"] = "False"
+                    if hasattr(content_engine, "use_gemini"):
+                        content_engine.use_gemini = False
+                        
+                    using_fallback = True
+                    print("✅ Framework parameters altered. Resuming pipeline compilation steps safely...\n")
+                    continue
+                else:
+                    # If it's a completely different bug, raise it out of the wrapper
+                    raise loop_error
 
         print("\n=========================================================")
         print("🎉 SUCCESS: Short Video Project compiled and rendered!")

@@ -8,7 +8,7 @@
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           echo "========================================================="
-          echo "🛠️ FORCING RUNNER TO WRITE AND EXECUTE ACTIVE BYPASS CODE"
+          echo "🛠️ FIXING ENGINE KEYWORDS AND BLOCKING ELEVENLABS RE-RUNS"
           echo "========================================================="
           
           # Force writing your exact current Python script onto the cloud server instance
@@ -78,25 +78,22 @@ def main():
         sys.exit(1)
 
     print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
-    # ✅ Setup Edge Module without requiring ElevenLabs API authentication keys
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
     print(f"--- Starting Generation for: {topic} ---")
 
     try:
-        # Initialize full-scale production content rendering engine pipeline
+        # 🎬 FIXED KEYWORD ARGUMENT: voiceModule (capital M) instead of voice_module
         content_engine = FactsShortEngine(
-            voice_module=voice_module,
+            voiceModule=voice_module,
             facts_type=topic,
             language=language
         )
 
         # =====================================================================
-        # ✅ THE CRITICAL EDGETTS & BACKGROUND MUSIC BYPASS PATCH
-        # Force-assign the Edge module tracking layers back into the active engine properties
-        # to ensure the ElevenLabs API fallback handler is ignored completely.
+        # ✅ THE BACKUP VOICE OVERRIDE PATCH
         # =====================================================================
-        print("🛠️ Injecting EdgeTTS module overrides into execution engine context...")
+        print("🛠️ Locking EdgeTTS module properties on core variables...")
         content_engine.voiceModule = voice_module
         
         content_engine._db_background_music_name = None

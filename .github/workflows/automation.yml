@@ -40,29 +40,6 @@ def main():
         # 1. Run the default synchronization check
         AssetDatabase.sync_local_assets() 
         
-        # 2. ✅ FORCE REGISTRATION: Explicitly target the exact path where your music file lives
-        from shortGPT.config.asset_db import AssetType
-        music_asset_name = 'the_mountain-background-music-159125'
-        
-        try:
-            AssetDatabase.get_asset_link(music_asset_name)
-            print(f"✅ Track '{music_asset_name}' found in database.")
-        except Exception:
-            print(f"⚠️ Track '{music_asset_name}' missing from default sync folder. Manually registering from repo assets...")
-            
-            # This structures the exact internal file path dynamically inside the GitHub runner workspace
-            local_music_path = os.path.join(
-                os.path.dirname(__file__), 
-                "shortGPT", "assets", "music", f"{music_asset_name}.mp3"
-            )
-            
-            AssetDatabase.add_local_asset(
-                name=music_asset_name,
-                asset_type=AssetType.BACKGROUND_MUSIC,
-                path=local_music_path
-            )
-            print(f"✅ Successfully mapped local asset file path to database: {local_music_path}")
-            
         print("✅ Asset Database abstraction layers initialized and synchronized successfully.")
     except Exception as db_err:
         print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
@@ -100,15 +77,20 @@ def main():
         )
 
         # =====================================================================
-        # ✅ THE CRITICAL DATABASE BYPASS PATCH
-        # Force-inject our verified local track paths right onto the running 
-        # instance to guarantee Step 7 passes without SQLite errors.
+        # ✅ THE ULTIMATE BACKGROUND MUSIC BYPASS PATCH
+        # Force-assign None to music fields and intercept Step 7 completely.
+        # This completely stops the engine from executing any SQLite lookups.
         # =====================================================================
-        music_asset_name = 'the_mountain-background-music-159125'
-        local_music_path = os.path.join(_here, "shortGPT", "assets", "music", f"{music_asset_name}.mp3")
-        content_engine._db_background_music_name = music_asset_name
-        content_engine._db_background_music_url = local_music_path
-        AssetDatabase.asset_database[music_asset_name] = local_music_path
+        print("🛠️ Bypassing Step 7: Overriding background music selection module...")
+        content_engine._db_background_music_name = None
+        content_engine._db_background_music_url = None
+        
+        # Overwrite the internal method on our specific running object to a harmless skip function
+        def skipped_choose_background_music():
+            print("⏩ Step 7 Notice: Background music skipped entirely by request.")
+            content_engine._db_background_music_url = None
+
+        content_engine._chooseBackgroundMusic = skipped_choose_background_music
         # =====================================================================
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")

@@ -1,3 +1,18 @@
+- name: Run ShortGPT Automation
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          OPENAI_MODEL: gpt-4o-mini
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          echo "========================================================="
+          echo "🛠️ FORCING RUNNER TO WRITE AND EXECUTE ACTIVE BYPASS CODE"
+          echo "========================================================="
+          
+          # Force writing your exact current Python script onto the cloud server instance
+          cat << 'EOF' > run_automation.py
 import os
 import sys
 import traceback
@@ -113,3 +128,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+EOF
+
+          echo "✅ run_automation.py successfully forced on runner machine!"
+          echo "Using GEMINI_MODEL=$GEMINI_MODEL"
+          python run_automation.py

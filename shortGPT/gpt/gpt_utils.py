@@ -61,13 +61,12 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
 
     gemini_model = "gemini-2.5-flash"
     
-    # Overwritten dynamically if Groq overrides are active via OPENAI_API_BASE
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     if os.getenv("OPENAI_API_BASE") and "groq" in os.getenv("OPENAI_API_BASE").lower():
         openai_model = "llama-3.1-8b-instant"
 
-    # Flag tracking if we need to fall back to Groq/OpenAI within this run
     force_openai_fallback = False
+    force_gemini_partition_swap = False
 
     if gemini_key:
         try:
@@ -79,7 +78,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                 system_instruction=system if system else None
             )
 
-            max_retry = 5
+            max_retry = 3
             error = ""
             for i in range(max_retry):
                 try:
@@ -93,50 +92,62 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                     text = response.text.strip()
                     if remove_nl:
                         text = re.sub(r'\s+', ' ', text)
-                    filename = f"{time()}_llm_completion.txt"
-                    os.makedirs('.logs/gpt_logs', exist_ok=True)
-                    with open(f'.logs/gpt_logs/{filename}', 'w', encoding='utf-8') as outfile:
-                        outfile.write(
-                            f"System prompt: ===\n{system}\n===\n"
-                            f"Chat prompt: ===\n{chat_prompt}\n===\n"
-                            f"RESPONSE:\n====\n{text}\n===\n"
-                        )
                     return text
                 except Exception as oops:
                     print("Error communicating with Gemini:", oops)
                     error = str(oops)
                     
-                    # 🎯 INTERCEPT QUOTA WALLS IMMEDIATELY
                     if "429" in error or "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
                         print("\n🛑 [GEMINI CEILING HIT]: Quota exhaustion confirmed inside core loop.")
-                        print("🔄 ESCAPING GEMINI BLOCK: Shifting text request straight over to Groq/OpenAI pipeline layer...")
-                        force_openai_fallback = True
-                        break # Terminate retry loops, skip to OpenAI execution fallback below
+                        
+                        # Only transfer to OpenAI client layer if actual valid custom keys are present
+                        if openai_key and not openai_key.startswith("AIza"):
+                            print("🔄 ESCAPING GEMINI BLOCK: Shifting text request straight over to Groq/OpenAI pipeline layer...")
+                            force_openai_fallback = True
+                        else:
+                            print("🔄 EMERGENCY ESCAPE: No dedicated backup keys found. Shifting execution to secondary Gemini 1.5 Quota Partition...")
+                            force_gemini_partition_swap = True
+                        break
                     sleep(1)
-            
-            # If it failed for a completely non-quota reason after retries
-            if not force_openai_fallback:
-                raise Exception(f"Gemini completion failed after retries: {error}")
 
         except Exception as gemini_block_err:
-            if not force_openai_fallback:
+            if not force_openai_fallback and not force_gemini_partition_swap:
                 raise gemini_block_err
 
-    # 🚀 SECURE COMPILATION LAYER: Executed if Gemini keys are missing OR if a 429 quota block was caught above
+    # 🛡️ COLD FALLBACK LAYER 1: Secondary Gemini Partition Swap (Uses alternative API pool)
+    if force_gemini_partition_swap and gemini_key:
+        try:
+            fallback_model_name = "gemini-1.5-flash"
+            print(f"🎙️ [PARTITION TRANSFER]: Querying backup engine: Model='{fallback_model_name}'")
+            
+            genai.configure(api_key=gemini_key)
+            backup_model = genai.GenerativeModel(
+                model_name=fallback_model_name,
+                system_instruction=system if system else None
+            )
+            
+            response = backup_model.generate_content(
+                chat_prompt,
+                generation_config={
+                    "temperature": float(temp),
+                    "max_output_tokens": max_tokens
+                }
+            )
+            text = response.text.strip()
+            if remove_nl:
+                text = re.sub(r'\s+', ' ', text)
+            return text
+        except Exception as deep_fault:
+            print(f"❌ CRITICAL: Partition fallback layer failed: {deep_fault}")
+            raise deep_fault
+
+    # 🚀 SECURE COMPILATION LAYER 2: Standard API Failover via explicit keys
     if openai_key or force_openai_fallback:
         from openai import OpenAI
         
-        # Pull API parameters or fallback gracefully on local system environments
-        target_key = openai_key if openai_key else (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY"))
+        target_key = openai_key
         target_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
         
-        # Strategic catch: If runner env doesn't contain a key, inject gemini_key to prevent OpenAI credential crash
-        if not target_key:
-            target_key = gemini_key
-            
-        if not target_key:
-            raise Exception("No OpenAI, Groq, or Gemini API Key found to route the failover request.")
-
         print(f"🎙️ [EXECUTION TRANSFER]: Querying backup engine: Base='{target_base}', Model='{openai_model}'")
         
         client = OpenAI(api_key=target_key, base_url=target_base)
@@ -157,5 +168,4 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             text = re.sub(r'\s+', ' ', text)
         return text
 
-    else:
-        raise Exception("No OpenAI, Groq, or Gemini API Key found for LLM request configurations.")
+    raise Exception("No OpenAI, Groq, or Gemini API Key found for LLM request configurations.")

@@ -56,10 +56,11 @@ def open_file(filepath):
 
 
 def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_nl=True, conversation=None):
-    openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
     gemini_model = "gemini-2.5-flash"
+    
     # Overwritten dynamically if Groq overrides are active via OPENAI_API_BASE
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     if os.getenv("OPENAI_API_BASE") and "groq" in os.getenv("OPENAI_API_BASE").lower():
@@ -85,7 +86,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                     response = model.generate_content(
                         chat_prompt,
                         generation_config={
-                            "temperature": temp,
+                            "temperature": float(temp),
                             "max_output_tokens": max_tokens
                         }
                     )
@@ -106,7 +107,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                     error = str(oops)
                     
                     # 🎯 INTERCEPT QUOTA WALLS IMMEDIATELY
-                    if "429" in error or "Quota exceeded" in error or "ResourceExhausted" in error:
+                    if "429" in error or "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
                         print("\n🛑 [GEMINI CEILING HIT]: Quota exhaustion confirmed inside core loop.")
                         print("🔄 ESCAPING GEMINI BLOCK: Shifting text request straight over to Groq/OpenAI pipeline layer...")
                         force_openai_fallback = True
@@ -126,9 +127,16 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
         from openai import OpenAI
         
         # Pull API parameters or fallback gracefully on local system environments
-        target_key = openai_key if openai_key else os.getenv("OPENAI_API_KEY")
+        target_key = openai_key if openai_key else (os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY"))
         target_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
         
+        # Strategic catch: If runner env doesn't contain a key, inject gemini_key to prevent OpenAI credential crash
+        if not target_key:
+            target_key = gemini_key
+            
+        if not target_key:
+            raise Exception("No OpenAI, Groq, or Gemini API Key found to route the failover request.")
+
         print(f"🎙️ [EXECUTION TRANSFER]: Querying backup engine: Base='{target_base}', Model='{openai_model}'")
         
         client = OpenAI(api_key=target_key, base_url=target_base)
@@ -141,7 +149,7 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             model=openai_model,
             messages=messages,
             max_tokens=max_tokens,
-            temperature=temp,
+            temperature=float(temp),
             timeout=30
         )
         text = response.choices[0].message.content.strip()

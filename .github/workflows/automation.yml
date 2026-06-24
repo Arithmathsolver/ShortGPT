@@ -21,8 +21,9 @@ from shortGPT.engine.facts_short_engine import FactsShortEngine
 def get_automation_settings():
     return {
         "language": os.getenv("SHORTGPT_LANG", "English"),
+        # Using a premium natural sounding Microsoft Edge cloud voice profile
         "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
-        "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
+        "niche_topic": os.getenv("SHORTGPT_NICHE", "Space Facts"),
         "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
     }
@@ -47,23 +48,26 @@ def main():
     print(f"\n📋 Pipeline Execution Settings:")
     print(f"  • Selected Niche Category : {topic}")
     print(f"  • Target Native Language  : {language}")
-    print(f"  • TTS Voice Profile Config: {voice_choice}\n")
+    print(f"  • TTS Voice Profile Config: {voice_choice} (EdgeTTS Free Tier)\n")
 
-    # Quick runtime check for the fallback key
     groq_key = os.getenv("OPENAI_API_KEY")
     if groq_key:
         print("✅ Groq Fallback Key detected in environment configuration profiles.")
 
+    gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
+    if not gemini_key:
+        print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
+        sys.exit(1)
+
+    # 🎯 FIX: Instantiating EdgeTTSVoiceModule instead of ElevenLabs to bypass credit limits
     print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
     print(f"--- Starting Generation for: {topic} ---")
 
-    # Flag tracking if we have tripped over into the backup pipeline yet
     using_fallback = False
 
     try:
-        # Initialize standard Gemini configuration run
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
             facts_type=topic,
@@ -73,7 +77,6 @@ def main():
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
         
-        # We manually drive the steps step-by-step so we can intercept errors immediately
         step_iterator = content_engine.makeContent()
         
         while True:
@@ -81,12 +84,10 @@ def main():
                 step_num, step_logs = next(step_iterator)
                 print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
             except StopIteration:
-                # The video generation loop successfully finished!
                 break
             except Exception as loop_error:
                 err_msg = str(loop_error)
                 
-                # Check if the error is a Gemini Quota Block
                 if ("429" in err_msg or "Quota exceeded" in err_msg or "GenerateRequestsPerDay" in err_msg) and not using_fallback:
                     print("\n🚨 [SYSTEM OVERRIDE DETECTED]: Gemini Daily 20-Request Ceiling Hit.")
                     print("🔄 RE-INITIALIZING PIPELINE: Upgrading text engine blocks to use Groq API...")
@@ -95,8 +96,6 @@ def main():
                         print("❌ FAILOVER ERROR: Cannot switch to Groq because your 'OPENAI_API_KEY' secret is missing!")
                         raise loop_error
                     
-                    # Force the runtime application global flags to drop Gemini lookups entirely
-                    # This tells ShortGPT to run future text steps via standard OpenAI/Groq libraries natively
                     os.environ["USE_GEMINI"] = "False"
                     if hasattr(content_engine, "use_gemini"):
                         content_engine.use_gemini = False
@@ -105,7 +104,6 @@ def main():
                     print("✅ Framework parameters altered. Resuming pipeline compilation steps safely...\n")
                     continue
                 else:
-                    # If it's a completely different bug, raise it out of the wrapper
                     raise loop_error
 
         print("\n=========================================================")

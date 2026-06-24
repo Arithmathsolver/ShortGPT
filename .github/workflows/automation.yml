@@ -14,14 +14,13 @@ if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
     os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
 # =====================================================================
-# 🛡️ THE ULTIMATE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH
+# 🛡️ THE ULTIMATE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (SELF-CONTAINED)
 # This hooks directly into the core `llm_completion` function. 
 # If Gemini throws a 429 or Quota limit at ANY point, it seamlessly
-# shifts that specific request to Groq without crashing the loop.
+# shifts that specific request to Groq WITHOUT calling internal OpenAI wrappers.
 # =====================================================================
 try:
     from shortGPT.gpt import gpt_utils
-    from shortGPT.gpt.gpt_utils import gpt3_5_turbo_completion
     
     if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
         gpt_utils._original_llm_completion = gpt_utils.llm_completion
@@ -34,24 +33,43 @@ try:
             except Exception as e:
                 err_msg = str(e)
                 # 2. Catch Gemini rate limits or quota walls
-                if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg:
+                if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg or "ceiling" in err_msg.lower():
                     print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core gpt_utils.")
-                    print("🔄 AUTOMATIC OVERRIDE: Rerouting this text completion request via Groq...")
+                    print("🔄 AUTOMATIC OVERRIDE: Executing inline self-contained failover via Groq API...")
                     
-                    # Construct the combined layout expected by the OpenAI/Groq engine wrapper
-                    combined_prompt = f"{system}\n\n{chat_prompt}" if system else chat_prompt
+                    # Pull key cleanly from environment
+                    fallback_key = os.getenv("OPENAI_API_KEY")
+                    fallback_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+                    fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
                     
-                    # Force model configuration parameters to use Groq's open-source model variable
-                    os.environ["OPENAI_MODEL"] = "llama-3.1-8b-instant"
+                    if not fallback_key:
+                        print("❌ FAILOVER ERROR: OPENAI_API_KEY (Groq secret) is completely missing or empty in environment variables!")
+                        raise e
                     
-                    # Execute using shortGPT's built-in OpenAI function layer redirected to Groq
-                    return gpt3_5_turbo_completion(combined_prompt)
+                    try:
+                        # Direct standard instantiation bypassing shortGPT's broken credential config lookups
+                        from openai import OpenAI
+                        client = OpenAI(api_key=fallback_key, base_url=fallback_base)
+                        
+                        messages = []
+                        if system:
+                            messages.append({"role": "system", "content": system})
+                        messages.append({"role": "user", "content": chat_prompt})
+                        
+                        response = client.chat.completions.create(
+                            model=fallback_model,
+                            messages=messages,
+                            temperature=float(temp)
+                        )
+                        return response.choices[0].message.content
+                    except Exception as inline_err:
+                        print(f"❌ CRITICAL: Inline fallback client failed: {inline_err}")
+                        raise e
                 else:
-                    # If it's another kind of error, bubble it up
                     raise e
                     
         gpt_utils.llm_completion = smart_failover_llm_completion
-        print("✅ Global Text Optimization: Core gpt_utils engine failover protection active.")
+        print("✅ Global Text Optimization: Self-contained direct engine failover protection active.")
 except Exception as patch_err:
     print(f"⚠️ Low-level text routing patch notice: {patch_err}")
 # =====================================================================
@@ -71,10 +89,6 @@ def get_automation_settings():
     }
 
 def sanitize_numpy_types(obj):
-    """
-    Recursively scans and normalizes numpy data types (like np.float64) 
-    into standard Python native types to protect moviepy asset tracking layers.
-    """
     import numpy as np
     if isinstance(obj, dict):
         return {k: sanitize_numpy_types(v) for k, v in obj.items()}
@@ -132,12 +146,10 @@ def main():
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
         
-        # Intercept and sanitize schema maps on-the-fly right before Step 11 asset compilation
         engine_loop = content_engine.makeContent()
         
         while True:
             try:
-                # Sanitize the underlying map before extracting the next generation log update
                 if hasattr(content_engine, 'caption_timing_map') and content_engine.caption_timing_map:
                     content_engine.caption_timing_map = sanitize_numpy_types(content_engine.caption_timing_map)
                 

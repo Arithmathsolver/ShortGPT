@@ -14,26 +14,46 @@ if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
     os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
 # =====================================================================
-# 🔕 THE ULTIMATE ELEVENLABS-TO-EDGETTS FORCE OVERRIDE
-# ShortGPT tends to pull ElevenLabs keys from env or internal dbs.
-# This patch forces the framework to treat every voice call as EdgeTTS!
+# 🛡️ THE ULTIMATE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH
+# This hooks directly into the core `llm_completion` function. 
+# If Gemini throws a 429 or Quota limit at ANY point, it seamlessly
+# shifts that specific request to Groq without crashing the loop.
 # =====================================================================
 try:
-    from shortGPT.audio import eleven_voice_module
-    from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
+    from shortGPT.gpt import gpt_utils
+    from shortGPT.gpt.gpt_utils import gpt3_5_turbo_completion
     
-    # We completely hijack the ElevenLabs class constructor
-    # If anything in ShortGPT tries to load ElevenLabs, it secretly gets EdgeTTS
-    def hijacked_eleven_labs_constructor(self, *args, **kwargs):
-        voice_choice = os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural")
-        print(f"\n🛡️ [ELEVENLABS BYPASS ACTIVATED]: Diverted credit wall. Loading EdgeTTS ({voice_choice})...")
-        self.__class__ = EdgeTTSVoiceModule
-        EdgeTTSVoiceModule.__init__(self, voiceName=voice_choice)
-
-    eleven_voice_module.ElevenLabsVoiceModule.__init__ = hijacked_eleven_labs_constructor
-    print("✅ Core Voice Optimization: ElevenLabs completely bypassed in memory.")
-except Exception as voice_patch_err:
-    print(f"⚠️ Voice redirection patch notice: {voice_patch_err}")
+    if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
+        gpt_utils._original_llm_completion = gpt_utils.llm_completion
+        gpt_utils._patched_llm_completion = True
+        
+        def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
+            try:
+                # 1. Try normal execution (Gemini)
+                return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
+            except Exception as e:
+                err_msg = str(e)
+                # 2. Catch Gemini rate limits or quota walls
+                if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg:
+                    print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core gpt_utils.")
+                    print("🔄 AUTOMATIC OVERRIDE: Rerouting this text completion request via Groq...")
+                    
+                    # Construct the combined layout expected by the OpenAI/Groq engine wrapper
+                    combined_prompt = f"{system}\n\n{chat_prompt}" if system else chat_prompt
+                    
+                    # Force model configuration parameters to use Groq's open-source model variable
+                    os.environ["OPENAI_MODEL"] = "llama-3.1-8b-instant"
+                    
+                    # Execute using shortGPT's built-in OpenAI function layer redirected to Groq
+                    return gpt3_5_turbo_completion(combined_prompt)
+                else:
+                    # If it's another kind of error, bubble it up
+                    raise e
+                    
+        gpt_utils.llm_completion = smart_failover_llm_completion
+        print("✅ Global Text Optimization: Core gpt_utils engine failover protection active.")
+except Exception as patch_err:
+    print(f"⚠️ Low-level text routing patch notice: {patch_err}")
 # =====================================================================
 
 from shortGPT.config.api_db import ApiKeyManager
@@ -70,7 +90,7 @@ def main():
     print(f"\n📋 Pipeline Execution Settings:")
     print(f"  • Selected Niche Category : {topic}")
     print(f"  • Target Native Language  : {language}")
-    print(f"  • TTS Voice Profile Config: {voice_choice} (Forced EdgeTTS Free Tier)\n")
+    print(f"  • TTS Voice Profile Config: {voice_choice}\n")
 
     groq_key = os.getenv("OPENAI_API_KEY")
     if groq_key:
@@ -86,8 +106,6 @@ def main():
 
     print(f"--- Starting Generation for: {topic} ---")
 
-    using_fallback = False
-
     try:
         content_engine = FactsShortEngine(
             voiceModule=voice_module,
@@ -98,34 +116,9 @@ def main():
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
         
-        step_iterator = content_engine.makeContent()
-        
-        while True:
-            try:
-                step_num, step_logs = next(step_iterator)
-                print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
-            except StopIteration:
-                break
-            except Exception as loop_error:
-                err_msg = str(loop_error)
-                
-                if ("429" in err_msg or "Quota exceeded" in err_msg or "GenerateRequestsPerDay" in err_msg) and not using_fallback:
-                    print("\n🚨 [SYSTEM OVERRIDE DETECTED]: Gemini Daily 20-Request Ceiling Hit.")
-                    print("🔄 RE-INITIALIZING PIPELINE: Upgrading text engine blocks to use Groq API...")
-                    
-                    if not groq_key:
-                        print("❌ FAILOVER ERROR: Cannot switch to Groq because your 'OPENAI_API_KEY' secret is missing!")
-                        raise loop_error
-                    
-                    os.environ["USE_GEMINI"] = "False"
-                    if hasattr(content_engine, "use_gemini"):
-                        content_engine.use_gemini = False
-                        
-                    using_fallback = True
-                    print("✅ Framework parameters altered. Resuming pipeline compilation steps safely...\n")
-                    continue
-                else:
-                    raise loop_error
+        # Drive standard loop generation steps safely
+        for step_num, step_logs in content_engine.makeContent():
+            print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
 
         print("\n=========================================================")
         print("🎉 SUCCESS: Short Video Project compiled and rendered!")

@@ -13,6 +13,29 @@ if str(_here) not in sys.path:
 if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
     os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
+# =====================================================================
+# 🔕 THE ULTIMATE ELEVENLABS-TO-EDGETTS FORCE OVERRIDE
+# ShortGPT tends to pull ElevenLabs keys from env or internal dbs.
+# This patch forces the framework to treat every voice call as EdgeTTS!
+# =====================================================================
+try:
+    from shortGPT.audio import eleven_voice_module
+    from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
+    
+    # We completely hijack the ElevenLabs class constructor
+    # If anything in ShortGPT tries to load ElevenLabs, it secretly gets EdgeTTS
+    def hijacked_eleven_labs_constructor(self, *args, **kwargs):
+        voice_choice = os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural")
+        print(f"\n🛡️ [ELEVENLABS BYPASS ACTIVATED]: Diverted credit wall. Loading EdgeTTS ({voice_choice})...")
+        self.__class__ = EdgeTTSVoiceModule
+        EdgeTTSVoiceModule.__init__(self, voiceName=voice_choice)
+
+    eleven_voice_module.ElevenLabsVoiceModule.__init__ = hijacked_eleven_labs_constructor
+    print("✅ Core Voice Optimization: ElevenLabs completely bypassed in memory.")
+except Exception as voice_patch_err:
+    print(f"⚠️ Voice redirection patch notice: {voice_patch_err}")
+# =====================================================================
+
 from shortGPT.config.api_db import ApiKeyManager
 from shortGPT.config.asset_db import AssetDatabase
 from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
@@ -21,9 +44,8 @@ from shortGPT.engine.facts_short_engine import FactsShortEngine
 def get_automation_settings():
     return {
         "language": os.getenv("SHORTGPT_LANG", "English"),
-        # Using a premium natural sounding Microsoft Edge cloud voice profile
         "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
-        "niche_topic": os.getenv("SHORTGPT_NICHE", "Space Facts"),
+        "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
         "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
     }
@@ -48,7 +70,7 @@ def main():
     print(f"\n📋 Pipeline Execution Settings:")
     print(f"  • Selected Niche Category : {topic}")
     print(f"  • Target Native Language  : {language}")
-    print(f"  • TTS Voice Profile Config: {voice_choice} (EdgeTTS Free Tier)\n")
+    print(f"  • TTS Voice Profile Config: {voice_choice} (Forced EdgeTTS Free Tier)\n")
 
     groq_key = os.getenv("OPENAI_API_KEY")
     if groq_key:
@@ -59,7 +81,6 @@ def main():
         print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
         sys.exit(1)
 
-    # 🎯 FIX: Instantiating EdgeTTSVoiceModule instead of ElevenLabs to bypass credit limits
     print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
     voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 

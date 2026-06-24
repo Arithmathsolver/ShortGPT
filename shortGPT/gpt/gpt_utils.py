@@ -114,10 +114,10 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             if not force_openai_fallback and not force_gemini_partition_swap:
                 raise gemini_block_err
 
-    # 🛡️ COLD FALLBACK LAYER 1: Secondary Gemini Partition Swap (Using explicit version fallback)
+    # 🛡️ COLD FALLBACK LAYER 1: Secondary Gemini Partition Swap (Using alternative explicit registry string)
     if force_gemini_partition_swap and gemini_key:
         try:
-            fallback_model_name = "gemini-1.5-flash"
+            fallback_model_name = "gemini-1.5-flash-latest"
             print(f"🎙️ [PARTITION TRANSFER]: Querying backup engine: Model='{fallback_model_name}'")
             
             genai.configure(api_key=gemini_key)

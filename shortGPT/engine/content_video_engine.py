@@ -117,25 +117,32 @@ class ContentVideoEngine(AbstractContentEngine):
         if not (os.path.exists(outputPath)):
             self.logger("Rendering short: Starting automated editing...")
             videoEditor = EditingEngine()
+            
+            # Sanitize precision voiceover duration type
+            clean_duration = float(self._db_voiceover_duration) if self._db_voiceover_duration else None
+            
             videoEditor.addEditingStep(EditingStep.ADD_VOICEOVER_AUDIO, {
                                        'url': self._db_audio_path})
             if (self._db_background_music_url):
                 videoEditor.addEditingStep(EditingStep.ADD_BACKGROUND_MUSIC, {'url': self._db_background_music_url,
-                                                                              'loop_background_music': self._db_voiceover_duration,
+                                                                              'loop_background_music': clean_duration,
                                                                               "volume_percentage": 0.08})
+            
+            # Fix dynamic NumPy data types for background video intervals
             for (t1, t2), video_url in self._db_timed_video_urls:
                 videoEditor.addEditingStep(EditingStep.ADD_BACKGROUND_VIDEO, {'url': video_url,
-                                                                              'set_time_start': t1,
-                                                                              'set_time_end': t2})
+                                                                              'set_time_start': float(t1),
+                                                                              'set_time_end': float(t2)})
             if (self._db_format_vertical):
                 caption_type = EditingStep.ADD_CAPTION_SHORT_ARABIC if self._db_language == Language.ARABIC.value else EditingStep.ADD_CAPTION_SHORT
             else:
                 caption_type = EditingStep.ADD_CAPTION_LANDSCAPE_ARABIC if self._db_language == Language.ARABIC.value else EditingStep.ADD_CAPTION_LANDSCAPE
 
+            # Fix dynamic NumPy data types for individual caption layers
             for (t1, t2), text in self._db_timed_captions:
                 videoEditor.addEditingStep(caption_type, {'text': text.upper(),
-                                                          'set_time_start': t1,
-                                                          'set_time_end': t2})
+                                                          'set_time_start': float(t1),
+                                                          'set_time_end': float(t2)})
 
             videoEditor.renderVideo(outputPath, logger= self.logger if self.logger is not self.default_logger else None)
 

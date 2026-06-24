@@ -14,10 +14,40 @@ if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
     os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
 # =====================================================================
-# 🛡️ THE ULTIMATE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (SELF-CONTAINED)
-# This hooks directly into the core `llm_completion` function. 
-# If Gemini throws a 429 or Quota limit at ANY point, it seamlessly
-# shifts that specific request to Groq WITHOUT calling internal OpenAI wrappers.
+# 🛡️ THE ULTIMATE LOW-LEVEL OPENAI CREDENTIAL DEVIATION PATCH
+# This intercepts downstream calls to OpenAI() instantiation blocks.
+# If shortGPT library code attempts to initialize OpenAI without valid keys,
+# this directly grabs your runner environment fallback credentials.
+# =====================================================================
+try:
+    import openai
+    from openai import OpenAI as RealOpenAI
+
+    class PatchedOpenAI(RealOpenAI):
+        def __init__(self, *args, **kwargs):
+            # Check if key is explicitly missing in incoming kwargs or args
+            api_key = kwargs.get("api_key") or (args[0] if args else None)
+            if not api_key:
+                fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
+                if fallback_key:
+                    kwargs["api_key"] = fallback_key
+            
+            # Ensure the base URL routes cleanly to Groq if utilizing a Groq secret
+            if kwargs.get("api_key") and "groq" in str(kwargs.get("api_key")).lower() or os.getenv("GROQ_API_KEY"):
+                if not kwargs.get("base_url") or "api.openai.com" in kwargs.get("base_url"):
+                    kwargs["base_url"] = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+            
+            super().__init__(*args, **kwargs)
+
+    # Overwrite the initialization modules globally across memory spaces
+    openai.OpenAI = PatchedOpenAI
+    sys.modules["openai"].OpenAI = PatchedOpenAI
+    print("✅ Global Class Optimization: Internal OpenAI engine wrapper patched.")
+except Exception as wrapper_patch_err:
+    print(f"⚠️ Internal credential failover patch notice: {wrapper_patch_err}")
+
+# =====================================================================
+# 🛡️ THE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (CORE LOOP INTERCEPTION)
 # =====================================================================
 try:
     from shortGPT.gpt import gpt_utils
@@ -37,17 +67,15 @@ try:
                     print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core gpt_utils.")
                     print("🔄 AUTOMATIC OVERRIDE: Executing inline self-contained failover via Groq API...")
                     
-                    # Pull key cleanly from environment
-                    fallback_key = os.getenv("OPENAI_API_KEY")
+                    fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
                     fallback_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
                     fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
                     
                     if not fallback_key:
-                        print("❌ FAILOVER ERROR: OPENAI_API_KEY (Groq secret) is completely missing or empty in environment variables!")
+                        print("❌ FAILOVER ERROR: Neither OPENAI_API_KEY nor GROQ_API_KEY is populated in environment variables!")
                         raise e
                     
                     try:
-                        # Direct standard instantiation bypassing shortGPT's broken credential config lookups
                         from openai import OpenAI
                         client = OpenAI(api_key=fallback_key, base_url=fallback_base)
                         
@@ -122,7 +150,7 @@ def main():
     print(f"  • Target Native Language  : {language}")
     print(f"  • TTS Voice Profile Config: {voice_choice}\n")
 
-    groq_key = os.getenv("OPENAI_API_KEY")
+    groq_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
     if groq_key:
         print("✅ Groq Fallback Key detected in environment configuration profiles.")
 
@@ -145,7 +173,6 @@ def main():
         )
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
-        
         engine_loop = content_engine.makeContent()
         
         while True:

@@ -70,6 +70,22 @@ def get_automation_settings():
         "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
     }
 
+def sanitize_numpy_types(obj):
+    """
+    Recursively scans and normalizes numpy data types (like np.float64) 
+    into standard Python native types to protect moviepy asset tracking layers.
+    """
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: sanitize_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_numpy_types(x) for x in obj]
+    elif isinstance(obj, (np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, (np.int64, np.int32)):
+        return int(obj)
+    return obj
+
 def main():
     print("=========================================================")
     print("🚀 STARTING AUTOMATED SHORTGPT MEDIA PIPELINE GENERATION ")
@@ -96,7 +112,7 @@ def main():
     if groq_key:
         print("✅ Groq Fallback Key detected in environment configuration profiles.")
 
-    gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY")
+    gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not gemini_key:
         print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
         sys.exit(1)
@@ -116,9 +132,20 @@ def main():
 
         print("🔄 Executing ShortGPT core processing engine loop blocks...")
         
-        # Drive standard loop generation steps safely
-        for step_num, step_logs in content_engine.makeContent():
-            print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+        # Intercept and sanitize schema maps on-the-fly right before Step 11 asset compilation
+        engine_loop = content_engine.makeContent()
+        
+        while True:
+            try:
+                # Sanitize the underlying map before extracting the next generation log update
+                if hasattr(content_engine, 'caption_timing_map') and content_engine.caption_timing_map:
+                    content_engine.caption_timing_map = sanitize_numpy_types(content_engine.caption_timing_map)
+                
+                step_num, step_logs = next(engine_loop)
+                print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+                
+            except StopIteration:
+                break
 
         print("\n=========================================================")
         print("🎉 SUCCESS: Short Video Project compiled and rendered!")

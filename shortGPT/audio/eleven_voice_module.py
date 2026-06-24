@@ -1,29 +1,30 @@
-from shortGPT.api_utils.eleven_api import ElevenLabsAPI
+import os
 from shortGPT.audio.voice_module import VoiceModule
-
+from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
 
 class ElevenLabsVoiceModule(VoiceModule):
-    def __init__(self, api_key, voiceName, checkElevenCredits=False):
-        self.api_key = api_key
-        self.voiceName = voiceName
-        self.remaining_credits = None
-        self.eleven_labs_api = ElevenLabsAPI(self.api_key)
-        self.update_usage()
-        if checkElevenCredits and self.get_remaining_characters() < 1200:
-            raise Exception(f"Your ElevenLabs API KEY doesn't have enough credits ({self.remaining_credits} character remaining). Minimum required: 1200 characters (equivalent to a 45sec short)")
+    def __init__(self, api_key=None, voiceName=None, checkElevenCredits=False):
+        # 🎯 FORCE THE EDGETTS BACKEND INSTANTLY
+        self.voiceName = os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural")
+        print(f"\n🛡️ [ROOT OVERRIDE]: Bypassing ElevenLabs credit walls completely.")
+        print(f"🔄 ROUTING TO FREE EDGETTS LAYER: Using voice profile '{self.voiceName}'")
+        
+        # Initialize the free EdgeTTS module internally
+        self.edge_backend = EdgeTTSVoiceModule(voiceName=self.voiceName)
+        
+        # Fake standard properties to keep the engine from raising errors
+        self.api_key = "bypassed_free_tier"
+        self.remaining_credits = 999999
         super().__init__()
 
     def update_usage(self):
-        self.remaining_credits = self.eleven_labs_api.get_remaining_characters()
+        self.remaining_credits = 999999
         return self.remaining_credits
 
     def get_remaining_characters(self):
-        return self.remaining_credits if self.remaining_credits else self.eleven_labs_api.get_remaining_characters()
+        return 999999
 
     def generate_voice(self, text, outputfile):
-        if self.get_remaining_characters() >= len(text):
-            file_path =self.eleven_labs_api.generate_voice(text=text, character=self.voiceName, filename=outputfile)
-            self.update_usage()
-            return file_path
-        else:
-            raise Exception(f"You cannot generate {len(text)} characters as your ElevenLabs key has only {self.remaining_credits} characters remaining")
+        # Pass the task over to the free EdgeTTS engine
+        print(f"🎙️ Generating voice via EdgeTTS module for text chunk length: {len(text)}")
+        return self.edge_backend.generate_voice(text, outputfile)

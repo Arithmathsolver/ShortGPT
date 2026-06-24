@@ -156,15 +156,21 @@ class ContentShortEngine(AbstractContentEngine):
                                            'text': self._db_watermark})
 
             caption_type = EditingStep.ADD_CAPTION_SHORT_ARABIC if self._db_language == Language.ARABIC.value else EditingStep.ADD_CAPTION_SHORT
-            for timing, text in self._db_timed_captions:
-                videoEditor.addEditingStep(caption_type, {'text': text.upper(),
-                                                          'set_time_start': timing[0],
-                                                          'set_time_end': timing[1]})
-            if self._db_num_images:
+            
+            # Sanitize NumPy or structural type allocations for standard caption inputs
+            if self._db_timed_captions:
+                for timing, text in self._db_timed_captions:
+                    videoEditor.addEditingStep(caption_type, {'text': text.upper(),
+                                                              'set_time_start': float(timing[0]),
+                                                              'set_time_end': float(timing[1])})
+                                                              
+            # Sanitize NumPy type instances inside image timing mappings
+            if hasattr(self, '_db_timed_image_urls') and self._db_timed_image_urls:
                 for timing, image_url in self._db_timed_image_urls:
                     videoEditor.addEditingStep(EditingStep.SHOW_IMAGE, {'url': image_url,
-                                                                        'set_time_start': timing[0],
-                                                                        'set_time_end': timing[1]})
+                                                                        'set_time_start': float(timing[0]),
+                                                                        'set_time_end': float(timing[1])})
+                                                                        
             print("***** SCHEMA FOR RENDERING ****")
             print(videoEditor.dumpEditingSchema())
             print("***** SCHEMA FOR RENDERING ****")

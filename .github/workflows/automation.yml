@@ -13,6 +13,40 @@ if str(_here) not in sys.path:
 if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
     os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
 
+
+# =====================================================================
+# 🛡️ THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
+# This intercepts yt-dlp initialization within libraries like shortGPT
+# and forces it to use standard browser extraction or local cookies.txt
+# =====================================================================
+try:
+    import yt_dlp
+    original_init = yt_dlp.YoutubeDL.__init__
+    
+    def patched_ydl_init(self, *args, **kwargs):
+        params = kwargs.get('params', {}) or args[0] if args else {}
+        
+        # Check if a cookies file exists locally in the workspace execution folder
+        if os.path.exists("cookies.txt"):
+            params['cookiefile'] = "cookies.txt"
+            print("🍪 [YT-DLP PATCH]: Successfully injected local cookies.txt into scraper options.")
+        else:
+            # Fallback configuration options if cookies.txt is missing
+            params['compatibility'] = 'no_cert_check'
+            
+        if args:
+            args = (params,) + args[1:]
+        else:
+            kwargs['params'] = params
+            
+        original_init(self, *args, **kwargs)
+        
+    yt_dlp.YoutubeDL.__init__ = patched_ydl_init
+    print("✅ Global Scraper Optimization: Internal yt-dlp cookie engine wrapper patched.")
+except Exception as ytdlp_patch_err:
+    print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
+
+
 # =====================================================================
 # 🛡️ THE ULTIMATE LOW-LEVEL OPENAI CREDENTIAL DEVIATION PATCH
 # This intercepts downstream calls to OpenAI() instantiation blocks.

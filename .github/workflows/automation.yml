@@ -16,23 +16,32 @@ if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
 
 # =====================================================================
 # 🛡️ THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
-# This intercepts yt-dlp initialization within libraries like shortGPT
-# and forces it to use standard browser extraction or local cookies.txt
 # =====================================================================
 try:
     import yt_dlp
     original_init = yt_dlp.YoutubeDL.__init__
     
     def patched_ydl_init(self, *args, **kwargs):
-        params = kwargs.get('params', {}) or args[0] if args else {}
+        params = kwargs.get('params', {}) or (args[0] if args else {})
         
-        # Check if a cookies file exists locally in the workspace execution folder
+        # Injected optimized anti-bot parameters
+        params['nocheckcertificate'] = True
+        params['quiet'] = True
+        params['no_warnings'] = True
+        
+        # Check if local cookies file exists
         if os.path.exists("cookies.txt"):
             params['cookiefile'] = "cookies.txt"
             print("🍪 [YT-DLP PATCH]: Successfully injected local cookies.txt into scraper options.")
         else:
-            # Fallback configuration options if cookies.txt is missing
-            params['compatibility'] = 'no_cert_check'
+            # Fake a standard browser interaction signature if cookies.txt is missing
+            print("⚠️ [YT-DLP PATCH]: cookies.txt missing. Injecting browser emulation headers...")
+            params['http_headers'] = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Referer': 'https://www.youtube.com/',
+            }
             
         if args:
             args = (params,) + args[1:]
@@ -48,42 +57,7 @@ except Exception as ytdlp_patch_err:
 
 
 # =====================================================================
-# 🛡️ THE ULTIMATE LOW-LEVEL OPENAI CREDENTIAL DEVIATION PATCH
-# This intercepts downstream calls to OpenAI() instantiation blocks.
-# If shortGPT library code attempts to initialize OpenAI without valid keys,
-# this directly grabs your runner environment fallback credentials.
-# =====================================================================
-try:
-    import openai
-    from openai import OpenAI as RealOpenAI
-
-    class PatchedOpenAI(RealOpenAI):
-        def __init__(self, *args, **kwargs):
-            # Check if key is explicitly missing in incoming kwargs or args
-            api_key = kwargs.get("api_key") or (args[0] if args else None)
-            if not api_key:
-                fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
-                if fallback_key:
-                    kwargs["api_key"] = fallback_key
-            
-            # Ensure the base URL routes cleanly to Groq if utilizing a Groq secret
-            if kwargs.get("api_key") and "groq" in str(kwargs.get("api_key")).lower() or os.getenv("GROQ_API_KEY"):
-                if not kwargs.get("base_url") or "api.openai.com" in kwargs.get("base_url"):
-                    kwargs["base_url"] = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
-            
-            super().__init__(*args, **kwargs)
-
-    # Overwrite the initialization modules globally across memory spaces
-    openai.OpenAI = PatchedOpenAI
-    sys.modules["openai"].OpenAI = PatchedOpenAI
-    print("✅ Global Class Optimization: Internal OpenAI engine wrapper patched.")
-except Exception as wrapper_patch_err:
-    print(f"⚠️ Internal credential failover patch notice: {wrapper_patch_err}")
-
-
-# =====================================================================
-# 🛡️ CORE ROUTING PATCh: INLINE LLM FAILOVER EXECUTOR
-# Shared fallback function to cleanly route blocked payloads to Groq
+# 🛡️ CORE ROUTING PATCH: INLINE LLM FAILOVER EXECUTOR
 # =====================================================================
 def execute_groq_fallback(chat_prompt, system="", temp=1):
     fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
@@ -115,10 +89,49 @@ def execute_groq_fallback(chat_prompt, system="", temp=1):
 
 
 # =====================================================================
-# 🛡️ THE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (CORE LOOP INTERCEPTION)
+# 🛡️ ABSOLUTE DEEP-LEVEL GEMINI SDK GOOGLE CLIENT INTERCEPTION
+# This overrides the Google GenerativeAI package execution at runtime.
+# =====================================================================
+try:
+    import google.generativeai as genai
+    if hasattr(genai, 'GenerativeModel'):
+        original_generate_content = genai.GenerativeModel.generate_content
+        
+        def patched_generate_content(self, contents, *args, **kwargs):
+            # Enforce a 1.5-second structural rest pause to stop burst flags
+            time.sleep(1.5)
+            try:
+                return original_generate_content(self, contents, *args, **kwargs)
+            except Exception as e:
+                err_msg = str(e)
+                if any(x in err_msg or x in err_msg.lower() for x in ["429", "quota", "resourceexhausted", "limit", "billing"]):
+                    print("\n🛑 [DEEP GEMINI SDK INTERCEPT]: Caught 429 Quota Exceeded directly inside Google Client.")
+                    print("🔄 REDIRECTING GENERATION TO GROQ ENGINE...")
+                    
+                    # Transform standard structural query types into plain-text strings for Groq
+                    prompt_string = str(contents)
+                    fallback_response = execute_groq_fallback(prompt_string, system="You are an expert video content assistant.")
+                    
+                    if fallback_response:
+                        # Fake a mock Google GenAI response object structure so shortGPT does not crash
+                        class MockResponse:
+                            def __init__(self, text_content):
+                                self.text = text_content
+                        return MockResponse(fallback_response)
+                raise e
+                
+        genai.GenerativeModel.generate_content = patched_generate_content
+        print("✅ Deep SDK Optimization: Native Google GenerativeAI Client Interceptor active.")
+except Exception as sdk_patch_err:
+    print(f"⚠️ Heavy SDK routing patch notice: {sdk_patch_err}")
+
+
+# =====================================================================
+# 🛡️ THE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (SHORTGPT CORE RECOVERY)
 # =====================================================================
 try:
     from shortGPT.gpt import gpt_utils
+    from shortGPT.gpt import youtube_metadata
     
     if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
         gpt_utils._original_llm_completion = gpt_utils.llm_completion
@@ -126,40 +139,25 @@ try:
         
         def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
             try:
-                # Add a brief rate-limiting buffer pause (0.5s) to mitigate Free Tier 5 RPM ceilings
-                time.sleep(0.5)
+                time.sleep(1.0)
                 return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
             except Exception as e:
                 err_msg = str(e)
-                if "429" in err_msg or "Quota exceeded" in err_msg or "ResourceExhausted" in err_msg or "ceiling" in err_msg.lower():
-                    print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core gpt_utils.")
+                if any(x in err_msg or x in err_msg.lower() for x in ["429", "quota", "resourceexhausted", "limit"]):
+                    print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core shortGPT modules.")
                     print("🔄 AUTOMATIC OVERRIDE: Executing inline self-contained failover via Groq API...")
                     res = execute_groq_fallback(chat_prompt, system, temp)
                     if res: return res
                 raise e
                     
         gpt_utils.llm_completion = smart_failover_llm_completion
+        youtube_metadata.llm_completion = smart_failover_llm_completion
         print("✅ Global Text Optimization: Self-contained direct engine failover protection active.")
 except Exception as patch_err:
     print(f"⚠️ Low-level text routing patch notice: {patch_err}")
 
 
-# =====================================================================
-# 🛡️ STEP 12 SPECIFIC METADATA COOLDOWN & FAILOVER PATCH
-# Intercepts ShortGPT's automated YouTube Metadata generation scripts
-# to introduce a small rest interval and failover to Groq if hit by a 429.
-# =====================================================================
-try:
-    from shortGPT.gpt import youtube_metadata
-    if hasattr(youtube_metadata, 'llm_completion'):
-        # Route the youtube_metadata module's direct calls to use our patched loop
-        youtube_metadata.llm_completion = gpt_utils.llm_completion
-        print("✅ Metadata Optimization: YouTube Asset Generation framework rate-patched successfully.")
-except Exception as meta_patch_err:
-    print(f"⚠️ Metadata routing patch bypass warning: {meta_patch_err}")
-# =====================================================================
-
-
+# Clean imports from the automated framework assets
 from shortGPT.config.api_db import ApiKeyManager
 from shortGPT.config.asset_db import AssetDatabase
 from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule

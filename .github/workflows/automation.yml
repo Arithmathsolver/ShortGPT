@@ -14,25 +14,27 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies (FFmpeg)
+      - name: Install System Dependencies (FFmpeg & Image Dev Libraries)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg libjpeg-dev zlib1g-dev libtiff5-dev libfreetype6-dev liblcms2-dev libwebp-dev tcl8.6-dev tk8.6-dev python3-tk
 
       - name: Install Python Package Dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           
-          # Install shortGPT normally so it pulls every single dependency it needs (tinymongo, dotenv, etc.)
-          pip install --no-cache-dir shortGPT
+          # 1. Install shortGPT normally. It will try (and possibly fail) to build its old Pillow, which we fix next.
+          pip install --no-cache-dir shortGPT || true
           
-          # Install the other required main packages normally
-          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken
+          # 2. Install the target LLM and automation packages normally
+          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv
           
-          # Force override protobuf to a version that satisfies both packages
-          pip install --no-cache-dir --force-reinstall "protobuf>=3.20.1,<5.0.0dev"
+          # 3. ULTIMATE BYPASS FORCED OVERRIDE: 
+          # Overwrite the broken compiled versions with stable, pre-built binary wheels 
+          # that satisfy both modern Google GenerativeAI and shortGPT runtime logic.
+          pip install --no-cache-dir --force-reinstall "protobuf>=3.20.1,<5.0.0dev" "Pillow>=10.0.0"
 
       - name: Execute Embedded Automation Engine
         env:

@@ -24,7 +24,12 @@ jobs:
       - name: Install Python Package Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --no-cache-dir yt-dlp openai google-generativeai shortGPT
+          # Install shortGPT first without letting its old requirements block the setup
+          pip install --no-cache-dir --no-deps shortGPT
+          # Install the other core dependencies normally
+          pip install --no-cache-dir yt-dlp openai google-generativeai
+          # Force install a version of protobuf that satisfies both runtimes
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev"
 
       - name: Execute Embedded Automation Engine
         env:

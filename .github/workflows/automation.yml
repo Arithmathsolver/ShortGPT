@@ -24,14 +24,15 @@ jobs:
       - name: Install Python Package Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Pre-seed a flexible protobuf version to stop pip from choosing conflicting versions later
+          
+          # Force establish a system-wide compatible version of protobuf first
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev"
-          # Install core requirements normally so all auxiliary modules (tinydb, dotenv, etc.) pull through
-          pip install --no-cache-dir yt-dlp openai google-generativeai python-dotenv tiktoken
-          # Force shortGPT to install while ignoring its rigid, hard-coded constraints
-          pip install --no-cache-dir --no-deps shortGPT
-          # Run a quick pull on anything shortGPT absolutely needs that might be missing
-          pip install --no-cache-dir tinydb progress speechrecognition edge-tts wrapping
+          
+          # Install core pipelines normally
+          pip install --no-cache-dir yt-dlp openai google-generativeai python-dotenv tiktoken tinydb progress speechrecognition edge-tts wrapping
+          
+          # Force shortGPT down pip's throat while completely ignoring its requirements file declarations
+          pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Execute Embedded Automation Engine
         env:

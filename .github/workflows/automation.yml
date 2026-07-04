@@ -14,12 +14,17 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Setup System Environment and Dependencies
+      - name: Install System Dependencies (FFmpeg)
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Python Package Dependencies
+        run: |
           python -m pip install --upgrade pip
-          pip install yt-dlp openai google-generativeai shortGPT
+          pip install --no-cache-dir yt-dlp openai google-generativeai shortGPT
 
       - name: Execute Embedded Automation Engine
         env:
@@ -45,7 +50,6 @@ jobs:
           # Force backend configuration variables to map to Groq if OpenAI-compatible wrappers are hit
           if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
               os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
-
 
           # =====================================================================
           # THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
@@ -88,7 +92,6 @@ jobs:
           except Exception as ytdlp_patch_err:
               print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
 
-
           # =====================================================================
           # CORE ROUTING PATCH: INLINE LLM FAILOVER EXECUTOR
           # =====================================================================
@@ -120,7 +123,6 @@ jobs:
                   print(f"❌ CRITICAL: Inline fallback client failed: {inline_err}")
                   return None
 
-
           # =====================================================================
           # ABSOLUTE DEEP-LEVEL GEMINI SDK GOOGLE CLIENT INTERCEPTION
           # =====================================================================
@@ -130,7 +132,6 @@ jobs:
                   original_generate_content = genai.GenerativeModel.generate_content
                   
                   def patched_generate_content(self, contents, *args, **kwargs):
-                      # Enforce a 1.5-second structural rest pause to stop burst flags
                       time.sleep(1.5)
                       try:
                           return original_generate_content(self, contents, *args, **kwargs)
@@ -154,7 +155,6 @@ jobs:
                   print("✅ Deep SDK Optimization: Native Google GenerativeAI Client Interceptor active.")
           except Exception as sdk_patch_err:
               print(f"⚠️ Heavy SDK routing patch notice: {sdk_patch_err}")
-
 
           # =====================================================================
           # THE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (SHORTGPT CORE RECOVERY)
@@ -185,7 +185,6 @@ jobs:
                   print("✅ Global Text Optimization: Self-contained direct engine failover protection active.")
           except Exception as patch_err:
               print(f"⚠️ Low-level text routing patch notice: {patch_err}")
-
 
           from shortGPT.config.api_db import ApiKeyManager
           from shortGPT.config.asset_db import AssetDatabase

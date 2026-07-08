@@ -62,6 +62,8 @@ jobs:
           
           # Ensure old openai client honors custom API bases globally
           import openai
+          if os.getenv("OPENAI_API_KEY"):
+              openai.api_key = os.getenv("OPENAI_API_KEY")
           if os.getenv("OPENAI_API_BASE"):
               openai.api_base = os.getenv("OPENAI_API_BASE")
 
@@ -167,11 +169,12 @@ jobs:
               print(f"⚠️ Heavy SDK routing patch notice: {sdk_patch_err}")
 
           # =====================================================================
-          # THE LOW-LEVEL GEMINI-TO-GROQ FAILOVER PATCH (SHORTGPT CORE RECOVERY)
+          # THE LOW-LEVEL ALL-ENGINES FAILOVER PATCH (SHORTGPT CORE RECOVERY)
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
               
+              # Patch 1: llm_completion routing
               if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
                   gpt_utils._original_llm_completion = gpt_utils.llm_completion
                   gpt_utils._patched_llm_completion = True
@@ -181,16 +184,26 @@ jobs:
                           time.sleep(1.0)
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
                       except Exception as e:
-                          err_msg = str(e)
-                          if any(x in err_msg or x in err_msg.lower() for x in ["429", "quota", "resourceexhausted", "limit"]):
-                              print("\n🛑 [GEMINI LIMIT HIT]: Intercepted quota wall inside core shortGPT modules.")
-                              print("🔄 AUTOMATIC OVERRIDE: Executing inline self-contained failover via Groq API...")
-                              res = execute_groq_fallback(chat_prompt, system, temp)
-                              if res: return res
+                          print(f"⚠️ Primary execution intercepted fallback warning: {e}")
+                          res = execute_groq_fallback(chat_prompt, system, temp)
+                          if res: return res
                           raise e
                               
                   gpt_utils.llm_completion = smart_failover_llm_completion
-                  print("✅ Global Text Optimization: Self-contained direct engine failover protection active.")
+
+              # Patch 2: gpt3Turbo_completion routing (Crucial fix for text generation tasks)
+              if hasattr(gpt_utils, 'gpt3Turbo_completion') and not hasattr(gpt_utils, '_patched_turbo_completion'):
+                  gpt_utils._patched_turbo_completion = True
+                  
+                  def smart_failover_turbo_completion(chat_prompt, system="", temp=1):
+                      print("🔄 [ENGINE ROUTING]: Processing generation request with Groq Automation Engine...")
+                      res = execute_groq_fallback(chat_prompt, system, temp)
+                      if res: return res
+                      raise Exception("Failed to execute text generation block inside pipeline fallbacks.")
+                      
+                  gpt_utils.gpt3Turbo_completion = smart_failover_turbo_completion
+                  
+              print("✅ Global Text Optimization: Self-contained fallback protections active for all completion modules.")
           except Exception as patch_err:
               print(f"⚠️ Low-level text routing patch notice: {patch_err}")
 

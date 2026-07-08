@@ -14,12 +14,12 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Install System Dependencies (FFmpeg, ImageMagick & Libraries)
+      - name: Install System Dependencies (FFmpeg, ImageMagick & Fonts)
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev
+          sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev fonts-liberation
           
           # Fix the ImageMagick security policy restriction that prevents MoviePy from rendering text assets
           sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' /etc/ImageMagick-6/policy.xml || true
@@ -125,6 +125,25 @@ jobs:
               print("Base optimizations: Internal yt-dlp cookie engine wrapper patched.")
           except Exception as ytdlp_patch_err:
               print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
+
+          # =====================================================================
+          # MOVIEPY FONT DISCOVERY & COMPATIBILITY PATCH
+          # =====================================================================
+          try:
+              import moviepy.video.VideoClip as videoclip
+              original_textclip_init = videoclip.TextClip.__init__
+              
+              def patched_textclip_init(self, *args, **kwargs):
+                  # Force clean fallbacks if custom fonts are missing from the OS container
+                  requested_font = kwargs.get('font', '')
+                  print(f"🔤 [FONT ENGINE PATCH]: Capture font footprint -> '{requested_font}'")
+                  kwargs['font'] = 'Liberation-Sans-Bold'
+                  original_textclip_init(self, *args, **kwargs)
+                  
+              videoclip.TextClip.__init__ = patched_textclip_init
+              print("✅ Typography Protection: MoviePy TextClip engine wrapper patched globally.")
+          except Exception as font_patch_err:
+              print(f"⚠️ Typography engine path override notice: {font_patch_err}")
 
           # =====================================================================
           # RECOVERY ROUTING PATCH: MULTI-PROVIDER SYSTEM COMPLETION ENGINE

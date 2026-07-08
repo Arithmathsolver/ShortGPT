@@ -379,9 +379,9 @@ jobs:
               voice_choice = settings["voice"]
 
               print(f"\n📋 Pipeline Execution Settings:")
-              print(f"   • Selected Niche Category : {topic}")
-              print(f"   • Target Native Language  : {language}")
-              print(f"   • TTS Voice Profile Config: {voice_choice}\n")
+              print(f"    • Selected Niche Category : {topic}")
+              print(f"    • Target Native Language  : {language}")
+              print(f"    • TTS Voice Profile Config: {voice_choice}\n")
 
               try:
                   lang_enum = Language.from_string(language)
@@ -419,7 +419,7 @@ jobs:
                               content_engine.caption_timing_map = sanitize_numpy_types(content_engine.caption_timing_map)
                           
                           step_num, step_logs = next(engine_loop)
-                          print(f"   [Step {step_num}/12 Progress Update]: {step_logs}")
+                          print(f"    [Step {step_num}/12 Progress Update]: {step_logs}")
                           
                       except StopIteration:
                           break

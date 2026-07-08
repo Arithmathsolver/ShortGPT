@@ -51,6 +51,12 @@ jobs:
           import traceback
           from pathlib import Path
 
+          # FIX: Ensure user-installed packages are explicitly added to the Python path
+          import site
+          user_site = site.getusersitepackages()
+          if user_site not in sys.path:
+              sys.path.insert(0, user_site)
+
           # Ensure local repository path layouts take precedence in memory
           _here = Path(__file__).parent.resolve()
           if str(_here) not in sys.path:
@@ -101,7 +107,7 @@ jobs:
                   original_init(self, *args, **kwargs)
                   
               yt_dlp.YoutubeDL.__init__ = patched_ydl_init
-              print("✅ Global Scraper Optimization: Internal yt-dlp cookie engine wrapper patched.")
+              print("Base optimizations: Internal yt-dlp cookie engine wrapper patched.")
           except Exception as ytdlp_patch_err:
               print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
 
@@ -171,7 +177,6 @@ jobs:
                   def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
                       try:
                           time.sleep(1.0)
-                          # First try routing to universal fallback to ensure Gemini modern SDK runs by default
                           res = execute_universal_fallback(chat_prompt, system, temp)
                           if res: return res
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
@@ -183,7 +188,7 @@ jobs:
                               
                   gpt_utils.llm_completion = smart_failover_llm_completion
 
-              # Patch 2: gpt3Turbo_completion routing (Crucial fix for text generation tasks)
+              # Patch 2: gpt3Turbo_completion routing
               if hasattr(gpt_utils, 'gpt3Turbo_completion') and not hasattr(gpt_utils, '_patched_turbo_completion'):
                   gpt_utils._patched_turbo_completion = True
                   
@@ -262,6 +267,9 @@ jobs:
               if not gemini_key:
                   print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
                   sys.exit(1)
+                  
+              # Manually inject the variable into ApiKeyManager to pass inner engine checks
+              ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)
 
               print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
               voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)

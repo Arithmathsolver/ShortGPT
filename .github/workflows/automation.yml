@@ -44,8 +44,12 @@ jobs:
       - name: Execute Embedded Automation Engine
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENAI_MODEL: "llama-3.1-8b-instant"
           IMAGEMAGICK_BINARY: "/usr/bin/convert"
           SHORTGPT_NICHE: "Deep Sea Mysteries"
           SHORTGPT_LANG: "English"
@@ -55,6 +59,7 @@ jobs:
           import os
           import sys
           import time
+          import random
           import traceback
           import subprocess
           from pathlib import Path
@@ -128,7 +133,6 @@ jobs:
                   return dest_path
               
               print(f"📥 [DOWNLOAD ENGINE]: Pre-fetching remote {asset_type} using curl wrapper...")
-              # Using curl with native browser headers to puncture firewall/bot restrictions
               curl_cmd = [
                   'curl', '-L', '-s', '-k',
                   '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -146,7 +150,6 @@ jobs:
                       raise Exception("Incomplete download layout check.")
               except Exception as e:
                   print(f"⚠️ Network block detected during asset sync: {e}.")
-                  # Actively deploy local disaster recovery asset so MoviePy receives a valid local path layout
                   is_video = "audio" not in asset_type.lower() and "music" not in asset_type.lower()
                   generate_synthetic_backup(dest_path, "video" if is_video else "audio")
                   return dest_path
@@ -184,7 +187,6 @@ jobs:
               
               def patched_ydl_init(self, *args, **kwargs):
                   params = kwargs.get('params', {}) or (args[0] if args else {})
-                  
                   params['nocheckcertificate'] = True
                   params['quiet'] = True
                   params['no_warnings'] = True
@@ -235,11 +237,20 @@ jobs:
           # RECOVERY ROUTING PATCH: MULTI-PROVIDER SYSTEM COMPLETION ENGINE
           # =====================================================================
           def execute_universal_fallback(chat_prompt, system="", temp=1):
-              gemini_key = os.getenv("GEMINI_API_KEY")
+              # Build dynamic key rotation pool for Gemini
+              gemini_pool = [
+                  os.getenv("GEMINI_API_KEY_1"),
+                  os.getenv("GEMINI_API_KEY_2"),
+                  os.getenv("GEMINI_API_KEY_3"),
+                  os.getenv("GEMINI_API_KEY")
+              ]
+              valid_gemini_keys = [k for k in gemini_pool if k]
               
+              # First Option: Groq Cloud via OpenAI Layer mapping
               if openai_client:
                   try:
                       fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+                      print(f"🔄 [ROUTING TO PRIMARY ENGINE]: Dispatching payload to Groq ({fallback_model})")
                       messages = []
                       if system:
                           messages.append({"role": "system", "content": system})
@@ -254,15 +265,20 @@ jobs:
                   except Exception as inline_err:
                       err_str = str(inline_err)
                       if "429" in err_str or "quota" in err_str.lower() or "rate_limit" in err_str.lower():
-                          handle_soft_landing(f"Fallback Provider Exhausted: {err_str}")
-                      print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
+                          print(f"⚠️ Primary Groq quota limit encountered. Dropping down to fallback pool...")
+                      else:
+                          print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
 
-              if gemini_key:
+              # Second Option: Dynamic Multi-Key Gemini Failover Rotation
+              if valid_gemini_keys:
+                  chosen_gemini_key = random.choice(valid_gemini_keys)
+                  # Masking key footprint for clean runtime dashboard telemetry
+                  print(f"🔄 [ROUTING TO ROTATED FALLBACK]: Shifting to Gemini pool token (...{chosen_gemini_key[-6:] if len(chosen_gemini_key) > 6 else 'KEY'})")
                   try:
                       from google import genai
                       from google.genai import types
                       
-                      client = genai.Client(api_key=gemini_key)
+                      client = genai.Client(api_key=chosen_gemini_key)
                       config = types.GenerateContentConfig(
                           temperature=float(temp),
                           system_instruction=system if system else None
@@ -277,8 +293,21 @@ jobs:
                   except Exception as gemini_fallback_err:
                       err_str = str(gemini_fallback_err)
                       if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                          handle_soft_landing(f"Gemini API Resource Exhausted: {err_str}")
-                      print(f"❌ CRITICAL: Gemini modern fallback client alternative failed: {gemini_fallback_err}")
+                          # If there are remaining keys in the pool, we can make one sequential attempt
+                          remaining_keys = [k for k in valid_gemini_keys if k != chosen_gemini_key]
+                          if remaining_keys:
+                              print("🔄 [ROUTING RE-TRY]: Selected key exhausted. Trying secondary key in active pool...")
+                              try:
+                                  client = genai.Client(api_key=random.choice(remaining_keys))
+                                  response = client.models.generate_content(
+                                      model="gemini-2.5-flash", contents=chat_prompt, config=config
+                                  )
+                                  return response.text
+                              except Exception as second_retry_err:
+                                  handle_soft_landing(f"All rotated Gemini credentials exhausted: {second_retry_err}")
+                          else:
+                              handle_soft_landing(f"Gemini API Resource Exhausted: {err_str}")
+                      print(f"❌ CRITICAL: Gemini fallback client alternatives failed completely: {gemini_fallback_err}")
               
               print("❌ ABORT: No viable translation/completion keys available to satisfy system parameters.")
               return None
@@ -295,7 +324,7 @@ jobs:
                   
                   def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
                       try:
-                          time.sleep(1.0)
+                          time.sleep(0.5)
                           res = execute_universal_fallback(chat_prompt, system, temp)
                           if res: return res
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
@@ -314,7 +343,6 @@ jobs:
                   gpt_utils._patched_turbo_completion = True
                   
                   def smart_failover_turbo_completion(chat_prompt, system="", temp=1):
-                      print("🔄 [ENGINE ROUTING]: Processing generation request through multi-provider completion router...")
                       res = execute_universal_fallback(chat_prompt, system, temp)
                       if res: return res
                       raise Exception("Failed to execute text generation block inside pipeline fallbacks.")
@@ -432,7 +460,6 @@ jobs:
               print("🚀 STARTING AUTOMATED SHORTGPT MEDIA PIPELINE GENERATION ")
               print("=========================================================")
 
-              # Warm-up step: download background media down locally or provision immediate synthetic assets
               download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Initial Background Video")
               download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Initial Background Audio")
 
@@ -461,12 +488,10 @@ jobs:
                   print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
                   lang_enum = Language.ENGLISH
 
-              gemini_key = os.getenv("GEMINI_API_KEY")
-              if not gemini_key:
-                  print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
-                  sys.exit(1)
-                  
-              ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)
+              # Handle fallback environment setup if main key isn't explicitly targeted
+              gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_1")
+              if gemini_key:
+                  ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)
 
               print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
               voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)

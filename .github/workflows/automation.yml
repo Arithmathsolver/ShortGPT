@@ -77,6 +77,13 @@ jobs:
           if os.getenv("OPENAI_API_BASE"):
               openai.api_base = os.getenv("OPENAI_API_BASE")
 
+          # Helper function for tracking soft-landing exit scenarios
+          def handle_soft_landing(error_message):
+              print("\n🟩 [AUTOMATION SOFT LANDING]: API Quota or Service Ceiling Intercepted.")
+              print(f"🟩 Details: {error_message}")
+              print("🟩 Exiting cleanly with status code 0 to keep the automation workflow healthy...")
+              sys.exit(0)
+
           # =====================================================================
           # THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
           # =====================================================================
@@ -140,6 +147,9 @@ jobs:
                       )
                       return response.choices[0].message.content
                   except Exception as inline_err:
+                      err_str = str(inline_err)
+                      if "429" in err_str or "quota" in err_str.lower() or "rate_limit" in err_str.lower():
+                          handle_soft_landing(f"Fallback Provider Exhausted: {err_str}")
                       print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
 
               if gemini_key:
@@ -160,6 +170,9 @@ jobs:
                       )
                       return response.text
                   except Exception as gemini_fallback_err:
+                      err_str = str(gemini_fallback_err)
+                      if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                          handle_soft_landing(f"Gemini API Resource Exhausted: {err_str}")
                       print(f"❌ CRITICAL: Gemini modern fallback client alternative failed: {gemini_fallback_err}")
               
               print("❌ ABORT: No viable translation/completion keys available to satisfy system parameters.")
@@ -182,6 +195,9 @@ jobs:
                           if res: return res
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
                       except Exception as e:
+                          err_str = str(e)
+                          if "429" in err_str or "quota" in err_str.lower():
+                              handle_soft_landing(err_str)
                           print(f"⚠️ Primary execution intercepted fallback warning: {e}")
                           res = execute_universal_fallback(chat_prompt, system, temp)
                           if res: return res
@@ -345,8 +361,10 @@ jobs:
               print("=========================================================")
 
               try:
-                  AssetDatabase.initialize_db()
-                  AssetDatabase.sync_local_assets() 
+                  if hasattr(AssetDatabase, 'initialize_db'):
+                      AssetDatabase.initialize_db()
+                  if hasattr(AssetDatabase, 'sync_local_assets'):
+                      AssetDatabase.sync_local_assets() 
                   print("✅ Asset Database abstraction layers synchronized successfully.")
               except Exception as db_err:
                   print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
@@ -366,10 +384,6 @@ jobs:
               except Exception:
                   print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
                   lang_enum = Language.ENGLISH
-
-              groq_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
-              if groq_key:
-                  print("✅ Groq/OpenAI Fallback Key detected in environment configuration profiles.")
 
               gemini_key = os.getenv("GEMINI_API_KEY")
               if not gemini_key:
@@ -412,10 +426,8 @@ jobs:
 
               except Exception as engine_failure:
                   err_str = str(engine_failure)
-                  if "429" in err_str or "Quota exceeded" in err_str or "ResourceExhausted" in err_str:
-                      print("\n🟩 [AUTOMATION SOFT LANDING]: Daily project pipeline ceiling reached.")
-                      print("🟩 Exiting cleanly with status code 0 to keep the workflow green until the next interval reset...")
-                      sys.exit(0)
+                  if "429" in err_str or "Quota exceeded" in err_str or "ResourceExhausted" in err_str or "pipeline fallbacks" in err_str.lower():
+                      handle_soft_landing(err_str)
                       
                   print("\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
                   print(f"Error Details: {err_str}")

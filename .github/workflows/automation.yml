@@ -25,13 +25,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           
-          # Force establish stable, modern ecosystem baselines first
-          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow>=10.0.0"
+          # Pin Pillow down to prevent legacy moviepy textsize rendering crashes
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0"
           
-          # Install core pipelines along with the missing heavy analytical modules
-          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping
+          # Install core elements along with analytics components and the python ffmpeg binder
+          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
           
-          # Force clean install shortGPT without letting structural metadata conflicts halt the run
+          # Force clean install shortGPT directly without structural conflict blocks halting runtime
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Execute Embedded Automation Engine

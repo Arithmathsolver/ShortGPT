@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           
           # Install torch CPU-only first to prevent massive CUDA GPU downloads on the runner
-          pip install --no-cache-dir torch  --index-url https://download.pytorch.org/whl/cpu
+          pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
           
           # Pin Pillow, MoviePy, and legacy OpenAI to ensure absolute backward compatibility
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai==0.28.1"
@@ -54,7 +54,7 @@ jobs:
           import traceback
           from pathlib import Path
 
-          # FIX: Ensure user-installed packages are explicitly added to the Python path
+          # Ensure user-installed packages are explicitly added to the Python path
           import site
           user_site = site.getusersitepackages()
           if user_site not in sys.path:
@@ -121,7 +121,6 @@ jobs:
               fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
               gemini_key = os.getenv("GEMINI_API_KEY")
               
-              # Strategy 1: Attempt to use OpenAI / Groq if a key configuration exists
               if fallback_key:
                   try:
                       fallback_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
@@ -142,7 +141,6 @@ jobs:
                   except Exception as inline_err:
                       print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
 
-              # Strategy 2: Failover seamlessly to modern google-genai SDK
               if gemini_key:
                   try:
                       from google import genai
@@ -172,7 +170,6 @@ jobs:
           try:
               from shortGPT.gpt import gpt_utils
               
-              # Patch 1: llm_completion routing
               if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
                   gpt_utils._original_llm_completion = gpt_utils.llm_completion
                   gpt_utils._patched_llm_completion = True
@@ -191,7 +188,6 @@ jobs:
                               
                   gpt_utils.llm_completion = smart_failover_llm_completion
 
-              # Patch 2: gpt3Turbo_completion routing
               if hasattr(gpt_utils, 'gpt3Turbo_completion') and not hasattr(gpt_utils, '_patched_turbo_completion'):
                   gpt_utils._patched_turbo_completion = True
                   
@@ -206,6 +202,37 @@ jobs:
               print("✅ Global Text Optimization: Self-contained fallback protections active for all completion modules.")
           except Exception as patch_err:
               print(f"⚠️ Low-level text routing patch notice: {patch_err}")
+
+          # =====================================================================
+          # CRITICAL ASSET ENGINE EXTENSION PATCH (FIX FOR BLANK ASSET DATABASES)
+          # =====================================================================
+          try:
+              from shortGPT.config  import asset_db
+              if hasattr(asset_db.AssetDatabase, 'get_asset_link'):
+                  asset_db.AssetDatabase._original_get_asset_link = asset_db.AssetDatabase.get_asset_link
+                  
+                  def dynamic_fallback_get_asset_link(key):
+                      try:
+                          return asset_db.AssetDatabase._original_get_asset_link(key)
+                      except Exception:
+                          # Map blank keys to reliable, stable public stock media locations
+                          fallbacks = {
+                              "music": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+                              "ocean": "https://assets.mixkit.co/videos/preview/mixkit-underwater-light-beams-background-loop-42340-large.mp4"
+                          }
+                          normalized_key = str(key).lower()
+                          for k, url in fallbacks.items():
+                              if k in normalized_key:
+                                  print(f"🔗 [ASSET DATABASE PATCH]: Intercepted missing asset '{key}'. Mapping to fallback stock asset URL.")
+                                  return url
+                          # Absolute ultimate emergency fallback link
+                          print(f"🔗 [ASSET DATABASE PATCH]: Key '{key}' not mapped. Providing emergency fallback URL.")
+                          return "https://assets.mixkit.co/videos/preview/mixkit-underwater-light-beams-background-loop-42340-large.mp4"
+                          
+                  asset_db.AssetDatabase.get_asset_link = dynamic_fallback_get_asset_link
+                  print("✅ Asset Engine Protection: Automated link redirection layers deployed.")
+          except Exception as db_patch_err:
+              print(f"⚠️ Asset validation patch note: {db_patch_err}")
 
           from shortGPT.config.api_db import ApiKeyManager
           from shortGPT.config.asset_db import AssetDatabase
@@ -271,7 +298,6 @@ jobs:
                   print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
                   sys.exit(1)
                   
-              # Manually inject the variable into ApiKeyManager to pass inner engine checks
               ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)
 
               print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")

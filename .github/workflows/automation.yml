@@ -25,11 +25,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           
-          # Pin Pillow and MoviePy down to ensure full compatibility with shortGPT's legacy imports
-          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0"
+          # Pin Pillow, MoviePy, and legacy OpenAI to ensure absolute backward compatibility
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai==0.28.1"
           
           # Install remaining core components, analytics tools, and binding integrations
-          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
+          pip install --no-cache-dir yt-dlp google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
           
           # Force clean install shortGPT directly without dependencies over-writing pinned versions
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
@@ -56,9 +56,14 @@ jobs:
           if str(_here) not in sys.path:
               sys.path.insert(0, str(_here))
 
-          # Force backend configuration variables to map to Groq if OpenAI-compatible wrappers are hit
+          # Force backward-compatible backend configuration variables to map to Groq if hit
           if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
               os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
+          
+          # Ensure old openai client honors custom API bases globally
+          import openai
+          if os.getenv("OPENAI_API_BASE"):
+              openai.api_base = os.getenv("OPENAI_API_BASE")
 
           # =====================================================================
           # THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
@@ -99,7 +104,7 @@ jobs:
               print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
 
           # =====================================================================
-          # CORE ROUTING PATCH: INLINE LLM FAILOVER EXECUTOR
+          # CORE ROUTING PATCH: INLINE v0.28 OPENAI/GROQ FAILOVER EXECUTOR
           # =====================================================================
           def execute_groq_fallback(chat_prompt, system="", temp=1):
               fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
@@ -111,22 +116,21 @@ jobs:
                   return None
                   
               try:
-                  from openai import OpenAI
-                  client = OpenAI(api_key=fallback_key, base_url=fallback_base)
-                  
                   messages = []
                   if system:
                       messages.append({"role": "system", "content": system})
                   messages.append({"role": "user", "content": chat_prompt})
                   
-                  response = client.chat.completions.create(
+                  response = openai.ChatCompletion.create(
+                      api_key=fallback_key,
+                      api_base=fallback_base,
                       model=fallback_model,
                       messages=messages,
                       temperature=float(temp)
                   )
                   return response.choices[0].message.content
               except Exception as inline_err:
-                  print(f"❌ CRITICAL: Inline fallback client failed: {inline_err}")
+                  print(f"❌ CRITICAL: Inline legacy fallback client failed: {inline_err}")
                   return None
 
           # =====================================================================
@@ -239,7 +243,6 @@ jobs:
               print(f"  • Target Native Language  : {language}")
               print(f"  • TTS Voice Profile Config: {voice_choice}\n")
 
-              # Convert string input into formal Enum instance demanded by the engine architecture
               try:
                   lang_enum = Language.from_string(language)
               except Exception:

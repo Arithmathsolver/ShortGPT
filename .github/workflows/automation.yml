@@ -25,13 +25,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           
-          # Pin Pillow down to prevent legacy moviepy textsize rendering crashes
-          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0"
+          # Pin Pillow and MoviePy down to ensure full compatibility with shortGPT's legacy imports
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0"
           
-          # Install core elements along with moviepy, analytics components, and the python ffmpeg binder
-          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python moviepy
+          # Install remaining core components, analytics tools, and binding integrations
+          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
           
-          # Force clean install shortGPT directly without structural conflict blocks halting runtime
+          # Force clean install shortGPT directly without dependencies over-writing pinned versions
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Execute Embedded Automation Engine

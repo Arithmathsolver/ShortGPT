@@ -28,8 +28,8 @@ jobs:
           # Pin Pillow down to prevent legacy moviepy textsize rendering crashes
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0"
           
-          # Install core elements along with analytics components and the python ffmpeg binder
-          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
+          # Install core elements along with moviepy, analytics components, and the python ffmpeg binder
+          pip install --no-cache-dir yt-dlp openai google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python moviepy
           
           # Force clean install shortGPT directly without structural conflict blocks halting runtime
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT

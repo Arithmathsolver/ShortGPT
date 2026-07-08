@@ -256,6 +256,7 @@ jobs:
                       voiceModule=voice_module,
                       facts_type=topic,
                       background_video_name="ocean", 
+                      background_music_name="music",
                       language=language
                   )
 

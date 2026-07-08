@@ -28,8 +28,8 @@ jobs:
           # Pin Pillow, MoviePy, and legacy OpenAI to ensure absolute backward compatibility
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai==0.28.1"
           
-          # Install remaining core components, analytics tools, and binding integrations
-          pip install --no-cache-dir yt-dlp google-generativeai tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
+          # Install modern Google GenAI SDK alongside core video pipeline components
+          pip install --no-cache-dir google-genai yt-dlp tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python
           
           # Force clean install shortGPT directly without dependencies over-writing pinned versions
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
@@ -131,60 +131,34 @@ jobs:
                       )
                       return response.choices[0].message.content
                   except Exception as inline_err:
-                      print(f"⚠️ Openai/Groq backend routing encountered an error: {inline_err}")
+                      print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
 
-              # Strategy 2: Failover seamlessly to Gemini API SDK if no keys or paths worked
+              # Strategy 2: Failover seamlessly to modern google-genai SDK
               if gemini_key:
                   try:
-                      import google.generativeai as genai
-                      genai.configure(api_key=gemini_key)
-                      model = genai.GenerativeModel(
-                          model_name="gemini-1.5-flash",
+                      from google import genai
+                      from google.genai import types
+                      
+                      client = genai.Client(api_key=gemini_key)
+                      config = types.GenerateContentConfig(
+                          temperature=float(temp),
                           system_instruction=system if system else None
                       )
-                      response = model.generate_content(chat_prompt)
+                      
+                      response = client.models.generate_content(
+                          model="gemini-2.5-flash",
+                          contents=chat_prompt,
+                          config=config
+                      )
                       return response.text
                   except Exception as gemini_fallback_err:
-                      print(f"❌ CRITICAL: Gemini fallback client alternative failed: {gemini_fallback_err}")
+                      print(f"❌ CRITICAL: Gemini modern fallback client alternative failed: {gemini_fallback_err}")
               
               print("❌ ABORT: No viable translation/completion keys available to satisfy system parameters.")
               return None
 
           # =====================================================================
-          # ABSOLUTE DEEP-LEVEL GEMINI SDK GOOGLE CLIENT INTERCEPTION
-          # =====================================================================
-          try:
-              import google.generativeai as genai
-              if hasattr(genai, 'GenerativeModel'):
-                  original_generate_content = genai.GenerativeModel.generate_content
-                  
-                  def patched_generate_content(self, contents, *args, **kwargs):
-                      time.sleep(1.5)
-                      try:
-                          return original_generate_content(self, contents, *args, **kwargs)
-                      except Exception as e:
-                          err_msg = str(e)
-                          if any(x in err_msg or x in err_msg.lower() for x in ["429", "quota", "resourceexhausted", "limit", "billing"]):
-                              print("\n🛑 [DEEP GEMINI SDK INTERCEPT]: Caught 429 Quota Exceeded directly inside Google Client.")
-                              print("🔄 REDIRECTING GENERATION TO FALLBACK ENGINE...")
-                              
-                              prompt_string = str(contents)
-                              fallback_response = execute_universal_fallback(prompt_string, system="You are an expert video content assistant.")
-                              
-                              if fallback_response:
-                                  class MockResponse:
-                                      def __init__(self, text_content):
-                                          self.text = text_content
-                                  return MockResponse(fallback_response)
-                          raise e
-                          
-                  genai.GenerativeModel.generate_content = patched_generate_content
-                  print("✅ Deep SDK Optimization: Native Google GenerativeAI Client Interceptor active.")
-          except Exception as sdk_patch_err:
-              print(f"⚠️ Heavy SDK routing patch notice: {sdk_patch_err}")
-
-          # =====================================================================
-          # THE LOW-LEVEL ALL-ENGINES FAILOVER PATCH (SHORTGPT CORE RECOVERY)
+          # LOW-LEVEL ALL-ENGINES FAILOVER PATCH (SHORTGPT CORE RECOVERY)
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
@@ -197,6 +171,9 @@ jobs:
                   def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
                       try:
                           time.sleep(1.0)
+                          # First try routing to universal fallback to ensure Gemini modern SDK runs by default
+                          res = execute_universal_fallback(chat_prompt, system, temp)
+                          if res: return res
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
                       except Exception as e:
                           print(f"⚠️ Primary execution intercepted fallback warning: {e}")
@@ -281,7 +258,7 @@ jobs:
               if groq_key:
                   print("✅ Groq/OpenAI Fallback Key detected in environment configuration profiles.")
 
-              gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+              gemini_key = os.getenv("GEMINI_API_KEY")
               if not gemini_key:
                   print("❌ CRITICAL ERROR: GEMINI_API_KEY is not configured in environment or Secrets.")
                   sys.exit(1)

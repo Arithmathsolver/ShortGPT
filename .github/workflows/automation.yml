@@ -106,34 +106,49 @@ jobs:
               print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
 
           # =====================================================================
-          # CORE ROUTING PATCH: INLINE v0.28 OPENAI/GROQ FAILOVER EXECUTOR
+          # RECOVERY ROUTING PATCH: MULTI-PROVIDER SYSTEM COMPLETION ENGINE
           # =====================================================================
-          def execute_groq_fallback(chat_prompt, system="", temp=1):
+          def execute_universal_fallback(chat_prompt, system="", temp=1):
               fallback_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
-              fallback_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
-              fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+              gemini_key = os.getenv("GEMINI_API_KEY")
               
-              if not fallback_key:
-                  print("❌ FAILOVER ERROR: Neither OPENAI_API_KEY nor GROQ_API_KEY is populated!")
-                  return None
-                  
-              try:
-                  messages = []
-                  if system:
-                      messages.append({"role": "system", "content": system})
-                  messages.append({"role": "user", "content": chat_prompt})
-                  
-                  response = openai.ChatCompletion.create(
-                      api_key=fallback_key,
-                      api_base=fallback_base,
-                      model=fallback_model,
-                      messages=messages,
-                      temperature=float(temp)
-                  )
-                  return response.choices[0].message.content
-              except Exception as inline_err:
-                  print(f"❌ CRITICAL: Inline legacy fallback client failed: {inline_err}")
-                  return None
+              # Strategy 1: Attempt to use OpenAI / Groq if a key configuration exists
+              if fallback_key:
+                  try:
+                      fallback_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+                      fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
+                      messages = []
+                      if system:
+                          messages.append({"role": "system", "content": system})
+                      messages.append({"role": "user", "content": chat_prompt})
+                      
+                      response = openai.ChatCompletion.create(
+                          api_key=fallback_key,
+                          api_base=fallback_base,
+                          model=fallback_model,
+                          messages=messages,
+                          temperature=float(temp)
+                      )
+                      return response.choices[0].message.content
+                  except Exception as inline_err:
+                      print(f"⚠️ Openai/Groq backend routing encountered an error: {inline_err}")
+
+              # Strategy 2: Failover seamlessly to Gemini API SDK if no keys or paths worked
+              if gemini_key:
+                  try:
+                      import google.generativeai as genai
+                      genai.configure(api_key=gemini_key)
+                      model = genai.GenerativeModel(
+                          model_name="gemini-1.5-flash",
+                          system_instruction=system if system else None
+                      )
+                      response = model.generate_content(chat_prompt)
+                      return response.text
+                  except Exception as gemini_fallback_err:
+                      print(f"❌ CRITICAL: Gemini fallback client alternative failed: {gemini_fallback_err}")
+              
+              print("❌ ABORT: No viable translation/completion keys available to satisfy system parameters.")
+              return None
 
           # =====================================================================
           # ABSOLUTE DEEP-LEVEL GEMINI SDK GOOGLE CLIENT INTERCEPTION
@@ -151,10 +166,10 @@ jobs:
                           err_msg = str(e)
                           if any(x in err_msg or x in err_msg.lower() for x in ["429", "quota", "resourceexhausted", "limit", "billing"]):
                               print("\n🛑 [DEEP GEMINI SDK INTERCEPT]: Caught 429 Quota Exceeded directly inside Google Client.")
-                              print("🔄 REDIRECTING GENERATION TO GROQ ENGINE...")
+                              print("🔄 REDIRECTING GENERATION TO FALLBACK ENGINE...")
                               
                               prompt_string = str(contents)
-                              fallback_response = execute_groq_fallback(prompt_string, system="You are an expert video content assistant.")
+                              fallback_response = execute_universal_fallback(prompt_string, system="You are an expert video content assistant.")
                               
                               if fallback_response:
                                   class MockResponse:
@@ -185,7 +200,7 @@ jobs:
                           return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
                       except Exception as e:
                           print(f"⚠️ Primary execution intercepted fallback warning: {e}")
-                          res = execute_groq_fallback(chat_prompt, system, temp)
+                          res = execute_universal_fallback(chat_prompt, system, temp)
                           if res: return res
                           raise e
                               
@@ -196,8 +211,8 @@ jobs:
                   gpt_utils._patched_turbo_completion = True
                   
                   def smart_failover_turbo_completion(chat_prompt, system="", temp=1):
-                      print("🔄 [ENGINE ROUTING]: Processing generation request with Groq Automation Engine...")
-                      res = execute_groq_fallback(chat_prompt, system, temp)
+                      print("🔄 [ENGINE ROUTING]: Processing generation request through multi-provider completion router...")
+                      res = execute_universal_fallback(chat_prompt, system, temp)
                       if res: return res
                       raise Exception("Failed to execute text generation block inside pipeline fallbacks.")
                       
@@ -264,7 +279,7 @@ jobs:
 
               groq_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
               if groq_key:
-                  print("✅ Groq Fallback Key detected in environment configuration profiles.")
+                  print("✅ Groq/OpenAI Fallback Key detected in environment configuration profiles.")
 
               gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
               if not gemini_key:

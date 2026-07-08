@@ -21,9 +21,14 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev fonts-liberation curl
           
-          # Fix the ImageMagick security policy restriction that prevents MoviePy from rendering text assets
-          sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' /etc/ImageMagick-6/policy.xml || true
-          sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' /etc/ImageMagick-6/policy.xml || true
+          # Dynamic ImageMagick Security Policy Patch (Works for both v6 and v7 configurations)
+          for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do
+            if [ -f "$policy" ]; then
+              echo "Applying security bypass patch to: $policy"
+              sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' "$policy" || true
+              sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' "$policy" || true
+            fi
+          done
 
       - name: Install Python Package Dependencies
         run: |
@@ -32,11 +37,11 @@ jobs:
           # Install torch CPU-only first to prevent massive CUDA GPU downloads on the runner
           pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
           
-          # Pin Pillow, MoviePy, and establish precise package version footprints
-          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai>=1.0.0"
+          # Pin Pillow, MoviePy, and establish precise package version footprints (Enforce NumPy < 2.0.0 compatibility)
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai>=1.0.0" "numpy<2.0.0"
           
           # Install modern Google GenAI SDK alongside core video pipeline components and transcription models
-          pip install --no-cache-dir google-genai yt-dlp tiktoken python-dotenv pandas numpy tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
+          pip install --no-cache-dir google-genai yt-dlp tiktoken python-dotenv pandas tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
           
           # Force clean install shortGPT directly without dependencies over-writing pinned versions
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
@@ -75,18 +80,24 @@ jobs:
           if str(_here) not in sys.path:
               sys.path.insert(0, str(_here))
 
-          # Force backward-compatible backend configuration variables to map to Groq if hit
-          if os.getenv("OPENAI_API_KEY") and not os.getenv("OPENAI_API_BASE"):
-              os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
-          
-          # Initialize modern OpenAI client wrapper
+          # Force backward-compatible backend configurations for legacy shortGPT internals
           import openai
+          if os.getenv("OPENAI_API_KEY"):
+              os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
+              # Inject directly into legacy module space if targeted
+              try:
+                  openai.api_base = "https://api.groq.com/openai/v1"
+                  openai.api_key = os.getenv("OPENAI_API_KEY")
+              except AttributeError:
+                  pass
+
+          # Initialize modern OpenAI client wrapper
           openai_client = None
           if os.getenv("OPENAI_API_KEY"):
               from openai import OpenAI
               openai_client = OpenAI(
                   api_key=os.getenv("OPENAI_API_KEY"),
-                  base_url=os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+                  base_url="https://api.groq.com/openai/v1"
               )
 
           # Helper function for tracking soft-landing exit scenarios
@@ -109,14 +120,12 @@ jobs:
               print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic local {asset_type} to completely bypass network errors...")
               try:
                   if asset_type == "video":
-                      # Create a high-quality vertical looping background asset (1080x1920)
                       cmd = [
                           'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x111827:s=1080x1920:d=120:r=25',
                           '-vf', "drawtext=text='Deep Sea Processing...':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
                           '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', dest_path
                       ]
                   else:
-                      # Create a 2-minute silent audio fallback structure
                       cmd = [
                           'ffmpeg', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', 
                           '-t', '120', '-acodec', 'libmp3lame', dest_path
@@ -237,7 +246,6 @@ jobs:
           # RECOVERY ROUTING PATCH: MULTI-PROVIDER SYSTEM COMPLETION ENGINE
           # =====================================================================
           def execute_universal_fallback(chat_prompt, system="", temp=1):
-              # Build dynamic key rotation pool for Gemini
               gemini_pool = [
                   os.getenv("GEMINI_API_KEY_1"),
                   os.getenv("GEMINI_API_KEY_2"),
@@ -246,7 +254,6 @@ jobs:
               ]
               valid_gemini_keys = [k for k in gemini_pool if k]
               
-              # First Option: Groq Cloud via OpenAI Layer mapping
               if openai_client:
                   try:
                       fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
@@ -269,10 +276,8 @@ jobs:
                       else:
                           print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
 
-              # Second Option: Dynamic Multi-Key Gemini Failover Rotation
               if valid_gemini_keys:
                   chosen_gemini_key = random.choice(valid_gemini_keys)
-                  # Masking key footprint for clean runtime dashboard telemetry
                   print(f"🔄 [ROUTING TO ROTATED FALLBACK]: Shifting to Gemini pool token (...{chosen_gemini_key[-6:] if len(chosen_gemini_key) > 6 else 'KEY'})")
                   try:
                       from google import genai
@@ -293,7 +298,6 @@ jobs:
                   except Exception as gemini_fallback_err:
                       err_str = str(gemini_fallback_err)
                       if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                          # If there are remaining keys in the pool, we can make one sequential attempt
                           remaining_keys = [k for k in valid_gemini_keys if k != chosen_gemini_key]
                           if remaining_keys:
                               print("🔄 [ROUTING RE-TRY]: Selected key exhausted. Trying secondary key in active pool...")
@@ -488,7 +492,6 @@ jobs:
                   print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
                   lang_enum = Language.ENGLISH
 
-              # Handle fallback environment setup if main key isn't explicitly targeted
               gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_1")
               if gemini_key:
                   ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)

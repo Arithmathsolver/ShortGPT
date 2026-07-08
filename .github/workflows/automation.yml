@@ -194,6 +194,7 @@ jobs:
           from shortGPT.config.asset_db import AssetDatabase
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
           from shortGPT.engine.facts_short_engine import FactsShortEngine
+          from shortGPT.config.languages import Language
 
           def get_automation_settings():
               return {
@@ -238,6 +239,13 @@ jobs:
               print(f"  • Target Native Language  : {language}")
               print(f"  • TTS Voice Profile Config: {voice_choice}\n")
 
+              # Convert string input into formal Enum instance demanded by the engine architecture
+              try:
+                  lang_enum = Language.from_string(language)
+              except Exception:
+                  print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
+                  lang_enum = Language.ENGLISH
+
               groq_key = os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
               if groq_key:
                   print("✅ Groq Fallback Key detected in environment configuration profiles.")
@@ -258,7 +266,7 @@ jobs:
                       facts_type=topic,
                       background_video_name="ocean", 
                       background_music_name="music",
-                      language=language
+                      language=lang_enum
                   )
 
                   print("🔄 Executing ShortGPT core processing engine loop blocks...")

@@ -20,6 +20,10 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev
+          
+          # Fix the ImageMagick security policy restriction that prevents MoviePy from rendering text assets
+          sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' /etc/ImageMagick-6/policy.xml || true
+          sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' /etc/ImageMagick-6/policy.xml || true
 
       - name: Install Python Package Dependencies
         run: |
@@ -62,7 +66,7 @@ jobs:
               sys.path.insert(0, user_site)
 
           # Ensure local repository path layouts take precedence in memory
-          _here = Path(__file__).parent.resolve()
+          _here = Path('.' if '__file__' not in locals() else __file__).parent.resolve()
           if str(_here) not in sys.path:
               sys.path.insert(0, str(_here))
 
@@ -263,7 +267,7 @@ jobs:
                   asset_db.AssetDatabase.get_asset_duration = dynamic_fallback_get_asset_duration
                   print("✅ Asset Engine Protection: Automated link and duration verification patches deployed.")
           except Exception as db_patch_err:
-              print(f"⚠️ Asset validation patch note: {db_patch_err}")
+              print(f"⚠️ Asset validation patch notice: {db_patch_err}")
 
           # =====================================================================
           # EDITING UTILS INTERCEPTION PATCH (FIX FOR BOT BLOCKS & MISSING FILES)
@@ -375,9 +379,9 @@ jobs:
               voice_choice = settings["voice"]
 
               print(f"\n📋 Pipeline Execution Settings:")
-              print(f"  • Selected Niche Category : {topic}")
-              print(f"  • Target Native Language  : {language}")
-              print(f"  • TTS Voice Profile Config: {voice_choice}\n")
+              print(f"   • Selected Niche Category : {topic}")
+              print(f"   • Target Native Language  : {language}")
+              print(f"   • TTS Voice Profile Config: {voice_choice}\n")
 
               try:
                   lang_enum = Language.from_string(language)

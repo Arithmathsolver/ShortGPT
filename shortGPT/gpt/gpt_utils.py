@@ -59,66 +59,75 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
-    gemini_model = "gemini-2.5-flash"
+    # Define an ordered pool of Gemini models to switch between when hitting quotas
+    gemini_models_pool = ["gemini-2.5-flash", "gemini-1.5-flash"]
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-    # Groq fallback detection
+    # Auto-adjust model if targeted to a Groq endpoint base URL
     if os.getenv("OPENAI_API_BASE") and "groq" in os.getenv("OPENAI_API_BASE").lower():
         openai_model = "llama-3.1-8b-instant"
 
     force_openai_fallback = False
+    last_gemini_error = ""
 
-    # ✅ Gemini client block
+    # ✅ Step 1: Execute Gemini Tier
     if gemini_key:
         try:
             genai.configure(api_key=gemini_key)
-            print("DEBUG: Using Gemini client library with model =", gemini_model)
+            
+            for current_model in gemini_models_pool:
+                print(f"DEBUG: Initializing Gemini client with model = {current_model}")
+                
+                model = genai.GenerativeModel(
+                    model_name=current_model,
+                    system_instruction=system if system else None
+                )
 
-            # Modern best practice: pass system instructions during model initialization
-            model = genai.GenerativeModel(
-                model_name=gemini_model,
-                system_instruction=system if system else None
-            )
+                max_retry = 3
+                quota_hit_for_current_model = False
+                
+                for i in range(max_retry):
+                    try:
+                        response = model.generate_content(
+                            chat_prompt,
+                            generation_config={
+                                "temperature": float(temp),
+                                "max_output_tokens": max_tokens
+                            }
+                        )
+                        text = response.text.strip()
+                        if remove_nl:
+                            text = re.sub(r'\s+', ' ', text)
+                        return text
+                        
+                    except Exception as oops:
+                        last_gemini_error = str(oops)
+                        print(f"Error communicating with Gemini ({current_model}) [Attempt {i+1}/{max_retry}]: {last_gemini_error}")
 
-            max_retry = 3
-            error = ""
-            for i in range(max_retry):
-                try:
-                    response = model.generate_content(
-                        chat_prompt,
-                        generation_config={
-                            "temperature": float(temp),
-                            "max_output_tokens": max_tokens
-                        }
-                    )
-                    text = response.text.strip()
-                    if remove_nl:
-                        text = re.sub(r'\s+', ' ', text)
-                    return text
-                except Exception as oops:
-                    print(f"Error communicating with Gemini (Attempt {i+1}/{max_retry}):", oops)
-                    error = str(oops)
+                        # Check for free tier quota errors
+                        if any(kw in last_gemini_error for kw in ["Quota exceeded", "ResourceExhausted", "limit", "429"]):
+                            print(f"🛑 Free tier quota exhausted for {current_model}. Rotating strategy...")
+                            quota_hit_for_current_model = True
+                            break # Break retry loop to attempt next model or fallback
+                        
+                        # Soft backoff for other unexpected API connectivity issues
+                        sleep(5)
+                
+                # If the error wasn't quota-related but still failed all retries, do not keep looping models
+                if not quota_hit_for_current_model:
+                    break
 
-                    # ✅ Handle quota exhaustion
-                    if any(kw in error for kw in ["Quota exceeded", "ResourceExhausted", "limit"]):
-                        print("🛑 Gemini quota hit, switching to fallback engine...")
-                        force_openai_fallback = True
-                        break  # exit retry loop and go to fallback
-
-                    # Slow down retries for other transient errors
-                    sleep(5)
-
-            if not force_openai_fallback:
-                raise Exception(f"Gemini completion failed after retries: {error}")
+            # If loop ends naturally without a return statement, we trigger the backup API layer
+            force_openai_fallback = True
 
         except Exception as gemini_block_err:
-            if not force_openai_fallback:
-                raise gemini_block_err
+            last_gemini_error = str(gemini_block_err)
+            force_openai_fallback = True
 
-    # 🚀 OpenAI/Groq fallback block
+    # 🚀 Step 2: Execute OpenAI / Groq Fallback Tier
     if force_openai_fallback or (not gemini_key and openai_key):
         if not openai_key:
-            raise Exception("Execution transfer triggered, but no OpenAI/Groq API Key was found.")
+            raise Exception(f"All Gemini models exhausted ({last_gemini_error}), and no fallback OpenAI/Groq API Key was found.")
             
         from openai import OpenAI
         target_key = openai_key
@@ -144,4 +153,4 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             text = re.sub(r'\s+', ' ', text)
         return text
 
-    raise Exception("No OpenAI, Groq, or Gemini API Key found for LLM request configurations.")
+    raise Exception("No active API keys found (Gemini, OpenAI, or Groq) to fulfill the completion request.")

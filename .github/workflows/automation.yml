@@ -40,18 +40,14 @@ jobs:
           # Pin Pillow, MoviePy, and establish precise package version footprints (Enforce NumPy < 2.0.0 compatibility)
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai>=1.0.0" "numpy<2.0.0"
           
-          # Install modern Google GenAI SDK alongside core video pipeline components and transcription models
-          pip install --no-cache-dir google-genai yt-dlp tiktoken python-dotenv pandas tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
+          # Install core video pipeline components and transcription models (google-genai removed as it's no longer used)
+          pip install --no-cache-dir yt-dlp tiktoken python-dotenv pandas tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
           
           # Force clean install shortGPT directly without dependencies over-writing pinned versions
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Execute Embedded Automation Engine
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
-          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_MODEL: "llama-3.1-8b-instant"
@@ -64,7 +60,6 @@ jobs:
           import os
           import sys
           import time
-          import random
           import traceback
           import subprocess
           from pathlib import Path
@@ -84,14 +79,13 @@ jobs:
           import openai
           if os.getenv("OPENAI_API_KEY"):
               os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
-              # Inject directly into legacy module space if targeted
               try:
                   openai.api_base = "https://api.groq.com/openai/v1"
                   openai.api_key = os.getenv("OPENAI_API_KEY")
               except AttributeError:
                   pass
 
-          # Initialize modern OpenAI client wrapper
+          # Initialize modern OpenAI client wrapper targeting Groq
           openai_client = None
           if os.getenv("OPENAI_API_KEY"):
               from openai import OpenAI
@@ -243,17 +237,9 @@ jobs:
               print(f"⚠️ Typography engine path override notice: {font_patch_err}")
 
           # =====================================================================
-          # RECOVERY ROUTING PATCH: MULTI-PROVIDER SYSTEM COMPLETION ENGINE
+          # TEXT GENERATION PIPELINE ROUTING ENGINE
           # =====================================================================
           def execute_universal_fallback(chat_prompt, system="", temp=1):
-              gemini_pool = [
-                  os.getenv("GEMINI_API_KEY_1"),
-                  os.getenv("GEMINI_API_KEY_2"),
-                  os.getenv("GEMINI_API_KEY_3"),
-                  os.getenv("GEMINI_API_KEY")
-              ]
-              valid_gemini_keys = [k for k in gemini_pool if k]
-              
               if openai_client:
                   try:
                       fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
@@ -272,48 +258,11 @@ jobs:
                   except Exception as inline_err:
                       err_str = str(inline_err)
                       if "429" in err_str or "quota" in err_str.lower() or "rate_limit" in err_str.lower():
-                          print(f"⚠️ Primary Groq quota limit encountered. Dropping down to fallback pool...")
+                          handle_soft_landing(f"Primary Groq rate limits or text pipeline ceiling intercepted: {err_str}")
                       else:
-                          print(f"⚠️ OpenAI/Groq backend routing encountered an error: {inline_err}")
-
-              if valid_gemini_keys:
-                  chosen_gemini_key = random.choice(valid_gemini_keys)
-                  print(f"🔄 [ROUTING TO ROTATED FALLBACK]: Shifting to Gemini pool token (...{chosen_gemini_key[-6:] if len(chosen_gemini_key) > 6 else 'KEY'})")
-                  try:
-                      from google import genai
-                      from google.genai import types
-                      
-                      client = genai.Client(api_key=chosen_gemini_key)
-                      config = types.GenerateContentConfig(
-                          temperature=float(temp),
-                          system_instruction=system if system else None
-                      )
-                      
-                      response = client.models.generate_content(
-                          model="gemini-2.5-flash",
-                          contents=chat_prompt,
-                          config=config
-                      )
-                      return response.text
-                  except Exception as gemini_fallback_err:
-                      err_str = str(gemini_fallback_err)
-                      if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                          remaining_keys = [k for k in valid_gemini_keys if k != chosen_gemini_key]
-                          if remaining_keys:
-                              print("🔄 [ROUTING RE-TRY]: Selected key exhausted. Trying secondary key in active pool...")
-                              try:
-                                  client = genai.Client(api_key=random.choice(remaining_keys))
-                                  response = client.models.generate_content(
-                                      model="gemini-2.5-flash", contents=chat_prompt, config=config
-                                  )
-                                  return response.text
-                              except Exception as second_retry_err:
-                                  handle_soft_landing(f"All rotated Gemini credentials exhausted: {second_retry_err}")
-                          else:
-                              handle_soft_landing(f"Gemini API Resource Exhausted: {err_str}")
-                      print(f"❌ CRITICAL: Gemini fallback client alternatives failed completely: {gemini_fallback_err}")
+                          print(f"❌ ERROR: OpenAI/Groq backend routing encountered an issue: {inline_err}")
               
-              print("❌ ABORT: No viable translation/completion keys available to satisfy system parameters.")
+              print("❌ ABORT: No viable completion engine keys available to satisfy system parameters.")
               return None
 
           # =====================================================================
@@ -432,7 +381,6 @@ jobs:
           except Exception as clip_patch_err:
               print(f"⚠️ Video engine patch initialization note: {clip_patch_err}")
 
-          from shortGPT.config.api_db import ApiKeyManager
           from shortGPT.config.asset_db import AssetDatabase
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
           from shortGPT.engine.facts_short_engine import FactsShortEngine
@@ -491,10 +439,6 @@ jobs:
               except Exception:
                   print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
                   lang_enum = Language.ENGLISH
-
-              gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_1")
-              if gemini_key:
-                  ApiKeyManager.set_api_key("GEMINI_API_KEY", gemini_key)
 
               print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
               voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)

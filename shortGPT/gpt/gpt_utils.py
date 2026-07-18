@@ -1,8 +1,7 @@
 import json
 import os
 import re
-from sys import exit
-from time import sleep, time
+from time import sleep
 from pathlib import Path
 
 import tiktoken
@@ -61,29 +60,30 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
     gemini_model = "gemini-2.5-flash"
-    
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    # Groq fallback detection
     if os.getenv("OPENAI_API_BASE") and "groq" in os.getenv("OPENAI_API_BASE").lower():
         openai_model = "llama-3.1-8b-instant"
 
     force_openai_fallback = False
 
+    # ✅ Gemini client block
     if gemini_key:
         try:
             genai.configure(api_key=gemini_key)
             print("DEBUG: Using Gemini client library with model =", gemini_model)
-            
-            model = genai.GenerativeModel(
-                model_name=gemini_model,
-                system_instruction=system if system else None
-            )
+
+            model = genai.GenerativeModel(gemini_model)
 
             max_retry = 3
             error = ""
             for i in range(max_retry):
                 try:
+                    # Pass system + chat as a list of inputs
+                    inputs = [system, chat_prompt] if system else [chat_prompt]
                     response = model.generate_content(
-                        chat_prompt,
+                        inputs,
                         generation_config={
                             "temperature": float(temp),
                             "max_output_tokens": max_tokens
@@ -96,55 +96,49 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                 except Exception as oops:
                     print("Error communicating with Gemini:", oops)
                     error = str(oops)
-                    
+
+                    # Handle quota exhaustion gracefully
                     if "429" in error or "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
-                        print("\n🛑 [GEMINI CEILING HIT]: Quota exhaustion confirmed inside core loop.")
-                        
-                        # Route through failover block if custom third-party provider credentials exist
+                        print("\n🛑 [GEMINI CEILING HIT]: Quota exhaustion confirmed.")
                         if openai_key and not openai_key.startswith("AIza"):
-                            print("🔄 ESCAPING GEMINI BLOCK: Shifting text request straight over to Groq/OpenAI pipeline layer...")
+                            print("🔄 Switching to Groq/OpenAI fallback...")
                             force_openai_fallback = True
                             break
                         else:
-                            print("\n🟩 [AUTOMATION SOFT LANDING]: Daily project pipeline ceiling reached.")
-                            print("🟩 Exiting cleanly with status code 0 to keep the workflow green until the next interval reset...")
-                            exit(0)
+                            raise Exception("Gemini quota exhausted and no fallback available.")
                     sleep(1)
+
+            if not force_openai_fallback:
+                raise Exception(f"Gemini completion failed after retries: {error}")
 
         except Exception as gemini_block_err:
             if not force_openai_fallback:
                 raise gemini_block_err
 
-    # 🚀 SECURE COMPILATION LAYER: Standard API Failover via explicit keys
+    # 🚀 OpenAI/Groq fallback block
     if openai_key or force_openai_fallback:
         from openai import OpenAI
-        
         target_key = openai_key
         target_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
-        
+
         print(f"🎙️ [EXECUTION TRANSFER]: Querying backup engine: Base='{target_base}', Model='{openai_model}'")
-        
-        try:
-            client = OpenAI(api_key=target_key, base_url=target_base)
-            messages = conversation if conversation else [
-                {"role": "system", "content": system},
-                {"role": "user", "content": chat_prompt}
-            ]
-            
-            response = client.chat.completions.create(
-                model=openai_model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=float(temp),
-                timeout=30
-            )
-            text = response.choices[0].message.content.strip()
-            if remove_nl:
-                text = re.sub(r'\s+', ' ', text)
-            return text
-        except Exception as external_err:
-            print(f"❌ Failover pipeline error: {external_err}")
-            print("🟩 [FAILOVER SOFT LANDING]: Intercepting endpoint crash. Exiting cleanly with code 0.")
-            exit(0)
+
+        client = OpenAI(api_key=target_key, base_url=target_base)
+        messages = conversation if conversation else [
+            {"role": "system", "content": system},
+            {"role": "user", "content": chat_prompt}
+        ]
+
+        response = client.chat.completions.create(
+            model=openai_model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=float(temp),
+            timeout=30
+        )
+        text = response.choices[0].message.content.strip()
+        if remove_nl:
+            text = re.sub(r'\s+', ' ', text)
+        return text
 
     raise Exception("No OpenAI, Groq, or Gemini API Key found for LLM request configurations.")

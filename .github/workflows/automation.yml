@@ -490,5 +490,5 @@ jobs:
                   print("----------------------------------")
                   sys.exit(1)
 
-          # Execute the main thread block cleanly outside of the layout indentation strings
+          # Execute the main entrypoint cleanly at the script level
           main()

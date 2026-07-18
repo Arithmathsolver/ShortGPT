@@ -97,16 +97,14 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                     print("Error communicating with Gemini:", oops)
                     error = str(oops)
 
-                    # Handle quota exhaustion gracefully
-                    if "429" in error or "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
-                        print("\n🛑 [GEMINI CEILING HIT]: Quota exhaustion confirmed.")
-                        if openai_key and not openai_key.startswith("AIza"):
-                            print("🔄 Switching to Groq/OpenAI fallback...")
-                            force_openai_fallback = True
-                            break
-                        else:
-                            raise Exception("Gemini quota exhausted and no fallback available.")
-                    sleep(1)
+                    # ✅ Handle quota exhaustion
+                    if "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
+                        print("🛑 Gemini quota hit, switching to fallback engine...")
+                        force_openai_fallback = True
+                        break  # exit retry loop and go to fallback
+
+                    # Slow down retries for other transient errors
+                    sleep(5)
 
             if not force_openai_fallback:
                 raise Exception(f"Gemini completion failed after retries: {error}")

@@ -74,16 +74,18 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             genai.configure(api_key=gemini_key)
             print("DEBUG: Using Gemini client library with model =", gemini_model)
 
-            model = genai.GenerativeModel(gemini_model)
+            # Modern best practice: pass system instructions during model initialization
+            model = genai.GenerativeModel(
+                model_name=gemini_model,
+                system_instruction=system if system else None
+            )
 
             max_retry = 3
             error = ""
             for i in range(max_retry):
                 try:
-                    # Pass system + chat as a list of inputs
-                    inputs = [system, chat_prompt] if system else [chat_prompt]
                     response = model.generate_content(
-                        inputs,
+                        chat_prompt,
                         generation_config={
                             "temperature": float(temp),
                             "max_output_tokens": max_tokens
@@ -94,11 +96,11 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                         text = re.sub(r'\s+', ' ', text)
                     return text
                 except Exception as oops:
-                    print("Error communicating with Gemini:", oops)
+                    print(f"Error communicating with Gemini (Attempt {i+1}/{max_retry}):", oops)
                     error = str(oops)
 
                     # ✅ Handle quota exhaustion
-                    if "Quota exceeded" in error or "ResourceExhausted" in error or "limit" in error.lower():
+                    if any(kw in error for kw in ["Quota exceeded", "ResourceExhausted", "limit"]):
                         print("🛑 Gemini quota hit, switching to fallback engine...")
                         force_openai_fallback = True
                         break  # exit retry loop and go to fallback
@@ -114,7 +116,10 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
                 raise gemini_block_err
 
     # 🚀 OpenAI/Groq fallback block
-    if openai_key or force_openai_fallback:
+    if force_openai_fallback or (not gemini_key and openai_key):
+        if not openai_key:
+            raise Exception("Execution transfer triggered, but no OpenAI/Groq API Key was found.")
+            
         from openai import OpenAI
         target_key = openai_key
         target_base = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")

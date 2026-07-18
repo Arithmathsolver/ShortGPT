@@ -64,6 +64,15 @@ jobs:
           import subprocess
           from pathlib import Path
 
+          # Force-inject API key options into environment space so core files never ask for prompts
+          api_key_env = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+          if api_key_env:
+              os.environ["OPENAI_API_KEY"] = api_key_env
+              os.environ["GROQ_API_KEY"] = api_key_env
+          else:
+              print("❌ ABORT: Missing critical GROQ_API_KEY secret block configuration mapping.")
+              sys.exit(1)
+
           # Ensure user-installed packages are explicitly added to the Python path
           import site
           user_site = site.getusersitepackages()
@@ -77,22 +86,19 @@ jobs:
 
           # Force backward-compatible backend configurations for legacy shortGPT internals
           import openai
-          if os.getenv("OPENAI_API_KEY"):
-              os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
-              try:
-                  openai.api_base = "https://api.groq.com/openai/v1"
-                  openai.api_key = os.getenv("OPENAI_API_KEY")
-              except AttributeError:
-                  pass
+          os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
+          try:
+              openai.api_base = "https://api.groq.com/openai/v1"
+              openai.api_key = os.environ["OPENAI_API_KEY"]
+          except AttributeError:
+              pass
 
           # Initialize modern OpenAI client wrapper targeting Groq
-          openai_client = None
-          if os.getenv("OPENAI_API_KEY"):
-              from openai import OpenAI
-              openai_client = OpenAI(
-                  api_key=os.getenv("OPENAI_API_KEY"),
-                  base_url="https://api.groq.com/openai/v1"
-              )
+          from openai import OpenAI
+          openai_client = OpenAI(
+              api_key=os.environ["OPENAI_API_KEY"],
+              base_url="https://api.groq.com/openai/v1"
+          )
 
           # Helper function for tracking soft-landing exit scenarios
           def handle_soft_landing(error_message):
@@ -484,5 +490,5 @@ jobs:
                   print("----------------------------------")
                   sys.exit(1)
 
-          if __name__ == "__main__":
-              main()
+          # Execute the main thread block cleanly outside of the layout indentation strings
+          main()

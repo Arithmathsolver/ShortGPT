@@ -6,7 +6,7 @@ from datetime import datetime
 
 def upload_to_youtube(video_path, title, description, keywords, privacy_status, token_data):
     """
-    Upload a video to YouTube using yt-dlp with multiple authentication methods.
+    Upload a video to YouTube using yt-dlp with OAuth2 authentication (no cookies needed).
     Returns: dict with success status and video URL if successful.
     """
     print(f"📤 Starting YouTube upload process...")
@@ -24,43 +24,7 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
     if keywords:
         full_description += f"\n\n{' '.join(['#' + k for k in keywords])}"
     
-    # Method 1: Try using cookies.txt
-    if os.path.exists("cookies.txt"):
-        print("📤 Attempting upload with cookies.txt...")
-        cmd = [
-            "yt-dlp",
-            "--cookies", "cookies.txt",
-            "--no-check-certificate",
-            "--title", title,
-            "--description", full_description,
-            "--privacy", privacy_status,
-            video_path
-        ]
-        
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            output = result.stdout + result.stderr
-            
-            if result.returncode == 0:
-                # Try to extract video URL
-                url_match = re.search(r'https://youtu\.be/([a-zA-Z0-9_-]+)', output)
-                if url_match:
-                    video_id = url_match.group(1)
-                    url = f"https://youtu.be/{video_id}"
-                    print(f"✅ Upload successful: {url}")
-                    return {"success": True, "video_id": video_id, "url": url}
-                else:
-                    print("✅ Upload successful (but URL not found in output)")
-                    return {"success": True, "message": "Upload completed"}
-            else:
-                error_msg = result.stderr if result.stderr else result.stdout
-                print(f"⚠️ Cookie upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
-        except subprocess.TimeoutExpired:
-            print("⚠️ Cookie upload timed out")
-        except Exception as e:
-            print(f"⚠️ Cookie upload error: {str(e)}")
-    
-    # Method 2: Try OAuth2 authentication
+    # METHOD 1: OAuth2 (Recommended - no cookies needed)
     print("📤 Attempting upload with OAuth2...")
     cmd = [
         "yt-dlp",
@@ -78,6 +42,7 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
         output = result.stdout + result.stderr
         
         if result.returncode == 0:
+            # Try to extract video URL
             url_match = re.search(r'https://youtu\.be/([a-zA-Z0-9_-]+)', output)
             if url_match:
                 video_id = url_match.group(1)
@@ -95,7 +60,40 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
     except Exception as e:
         print(f"⚠️ OAuth2 upload error: {str(e)}")
     
-    # Method 3: Try no authentication (will likely fail for private uploads)
+    # METHOD 2: Try cookies.txt as fallback
+    if os.path.exists("cookies.txt"):
+        print("📤 Attempting upload with cookies.txt...")
+        cmd = [
+            "yt-dlp",
+            "--cookies", "cookies.txt",
+            "--no-check-certificate",
+            "--title", title,
+            "--description", full_description,
+            "--privacy", privacy_status,
+            video_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            output = result.stdout + result.stderr
+            
+            if result.returncode == 0:
+                url_match = re.search(r'https://youtu\.be/([a-zA-Z0-9_-]+)', output)
+                if url_match:
+                    video_id = url_match.group(1)
+                    url = f"https://youtu.be/{video_id}"
+                    print(f"✅ Upload successful: {url}")
+                    return {"success": True, "video_id": video_id, "url": url}
+                else:
+                    print("✅ Upload successful (but URL not found in output)")
+                    return {"success": True, "message": "Upload completed"}
+            else:
+                error_msg = result.stderr if result.stderr else result.stdout
+                print(f"⚠️ Cookie upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
+        except Exception as e:
+            print(f"⚠️ Cookie upload error: {str(e)}")
+    
+    # METHOD 3: Try no authentication (will likely fail)
     print("📤 Attempting upload with no authentication...")
     cmd = [
         "yt-dlp",
@@ -120,9 +118,6 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
             else:
                 print("✅ Upload successful (but URL not found in output)")
                 return {"success": True, "message": "Upload completed"}
-        else:
-            error_msg = result.stderr if result.stderr else result.stdout
-            print(f"⚠️ No-auth upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
     except Exception as e:
         print(f"⚠️ No-auth upload error: {str(e)}")
     

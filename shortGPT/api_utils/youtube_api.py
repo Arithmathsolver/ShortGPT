@@ -53,7 +53,8 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
                     print("✅ Upload successful (but URL not found in output)")
                     return {"success": True, "message": "Upload completed"}
             else:
-                print(f"⚠️ Cookie upload failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+                error_msg = result.stderr if result.stderr else result.stdout
+                print(f"⚠️ Cookie upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
         except subprocess.TimeoutExpired:
             print("⚠️ Cookie upload timed out")
         except Exception as e:
@@ -87,7 +88,8 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
                 print("✅ Upload successful (but URL not found in output)")
                 return {"success": True, "message": "Upload completed"}
         else:
-            print(f"⚠️ OAuth2 upload failed: {result.stderr[:200] if result.stderr else 'Unknown error'}")
+            error_msg = result.stderr if result.stderr else result.stdout
+            print(f"⚠️ OAuth2 upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
     except subprocess.TimeoutExpired:
         print("⚠️ OAuth2 upload timed out")
     except Exception as e:
@@ -118,6 +120,9 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
             else:
                 print("✅ Upload successful (but URL not found in output)")
                 return {"success": True, "message": "Upload completed"}
+        else:
+            error_msg = result.stderr if result.stderr else result.stdout
+            print(f"⚠️ No-auth upload failed: {error_msg[:200] if error_msg else 'Unknown error'}")
     except Exception as e:
         print(f"⚠️ No-auth upload error: {str(e)}")
     

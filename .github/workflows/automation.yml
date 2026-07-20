@@ -51,6 +51,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_MODEL: "llama-3.1-8b-instant"
+          FORCE_GROQ: "true"
           IMAGEMAGICK_BINARY: "/usr/bin/convert"
           SHORTGPT_NICHE: "Deep Sea Mysteries"
           SHORTGPT_LANG: "English"

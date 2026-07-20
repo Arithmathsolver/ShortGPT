@@ -14,6 +14,15 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Create cookies file for YouTube upload
+        run: |
+          if [ -n "${{ secrets.YT_COOKIES }}" ]; then
+            echo "${{ secrets.YT_COOKIES }}" > cookies.txt
+            echo "✅ cookies.txt created successfully"
+          else
+            echo "⚠️ YT_COOKIES secret not found, YouTube upload will be skipped"
+          fi
+
       - name: Install System Dependencies (FFmpeg, ImageMagick & Fonts)
         env:
           DEBIAN_FRONTEND: noninteractive

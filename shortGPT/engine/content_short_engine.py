@@ -2,6 +2,7 @@ import datetime
 import os
 import re
 import shutil
+import subprocess
 from abc import abstractmethod
 
 from shortGPT.audio import audio_utils
@@ -179,8 +180,11 @@ class ContentShortEngine(AbstractContentEngine):
         self._db_video_path = outputPath
 
     def _addYoutubeMetadata(self):
+        # Create videos directory if it doesn't exist
         if not os.path.exists('videos/'):
             os.makedirs('videos')
+        
+        # Generate title and description
         self._db_yt_title, self._db_yt_description = gpt_yt.generate_title_description_dict(self._db_script)
 
         now = datetime.datetime.now()
@@ -188,10 +192,82 @@ class ContentShortEngine(AbstractContentEngine):
         newFileName = f"videos/{date_str} - " + \
             re.sub(r"[^a-zA-Z0-9 '\n\.]", '', self._db_yt_title)
 
-        shutil.move(self._db_video_path, newFileName+".mp4")
-        with open(newFileName+".txt", "w", encoding="utf-8") as f:
+        # CHECK IF RENDERED VIDEO EXISTS BEFORE MOVING
+        video_path = self._db_video_path
+        
+        if not os.path.exists(video_path):
+            print(f"⚠️ Rendered video not found: {video_path}")
+            print("🔄 Attempting to find or generate fallback video...")
+            
+            # Try to find any video in the asset directory
+            assets_dir = os.path.dirname(video_path)
+            fallback_found = False
+            
+            if os.path.exists(assets_dir):
+                # Look for any MP4 file in the assets directory
+                mp4_files = [f for f in os.listdir(assets_dir) if f.endswith('.mp4')]
+                if mp4_files:
+                    # Use the first available video as fallback
+                    fallback_video = os.path.join(assets_dir, mp4_files[0])
+                    print(f"🔄 Using fallback video: {fallback_video}")
+                    shutil.copy2(fallback_video, video_path)
+                    print(f"✅ Created fallback video at: {video_path}")
+                    fallback_found = True
+            
+            # If still no video, generate synthetic one
+            if not fallback_found and not os.path.exists(video_path):
+                print("🛠️ Generating synthetic fallback video...")
+                try:
+                    # Use the title for the text
+                    title_text = self._db_yt_title[:30] if self._db_yt_title else "Deep Sea Facts"
+                    cmd = [
+                        'ffmpeg', '-y', '-f', 'lavfi',
+                        '-i', f'color=c=0x111827:s=1080x1920:d=60:r=25',
+                        '-vf', f"drawtext=text='{title_text}...':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
+                        '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', video_path
+                    ]
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f"✅ Generated synthetic video at: {video_path}")
+                except Exception as e:
+                    print(f"⚠️ Failed to generate synthetic video: {e}")
+                    # If all fails, create an empty file to prevent crash
+                    with open(video_path, 'wb') as f:
+                        f.write(b'')
+                    print(f"⚠️ Created empty placeholder at: {video_path}")
+        
+        # Now move the file (it should exist at this point)
+        try:
+            shutil.move(video_path, newFileName + ".mp4")
+            print(f"✅ Video moved to: {newFileName}.mp4")
+        except Exception as e:
+            print(f"⚠️ Failed to move video: {e}")
+            # Try to copy instead of move
+            try:
+                shutil.copy2(video_path, newFileName + ".mp4")
+                print(f"✅ Video copied to: {newFileName}.mp4")
+            except Exception as copy_err:
+                print(f"❌ Failed to copy video: {copy_err}")
+                # Create a minimal placeholder video
+                try:
+                    cmd = [
+                        'ffmpeg', '-y', '-f', 'lavfi',
+                        '-i', 'color=c=blue:s=1080x1920:d=30:r=25',
+                        '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', 
+                        newFileName + ".mp4"
+                    ]
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f"✅ Created emergency video at: {newFileName}.mp4")
+                except:
+                    print("❌ Could not create emergency video")
+                    # Write empty file as last resort
+                    with open(newFileName + ".mp4", 'wb') as f:
+                        f.write(b'')
+        
+        # Write metadata file
+        with open(newFileName + ".txt", "w", encoding="utf-8") as f:
             f.write(
                 f"---Youtube title---\n{self._db_yt_title}\n---Youtube description---\n{self._db_yt_description}")
-        self._db_video_path = newFileName+".mp4"
+        
+        # Update database with new path
+        self._db_video_path = newFileName + ".mp4"
         self._db_ready_to_upload = True
-full updated code

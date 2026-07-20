@@ -561,3 +561,57 @@ jobs:
 
           # Execute the main entrypoint cleanly at the script level
           main()
+
+      # =====================================================================
+      # UPLOAD TO YOUTUBE (SEPARATE SHELL STEP FOR DEBUGGING)
+      # =====================================================================
+      - name: Upload Video to YouTube
+        if: success()
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          echo "🔍 Checking for videos in videos/ directory..."
+          ls -la videos/ || echo "No videos directory found"
+          
+          # Find the latest video
+          LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
+          
+          if [ -z "$LATEST_VIDEO" ]; then
+            echo "⚠️ No video found in videos/ directory"
+            exit 0
+          fi
+          
+          echo "📤 Found video: $LATEST_VIDEO"
+          echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
+          
+          # Extract title from filename (remove timestamp prefix)
+          VIDEO_TITLE=$(basename "$LATEST_VIDEO" .mp4 | sed 's/^[0-9-]* - //')
+          echo "📝 Title: $VIDEO_TITLE"
+          
+          echo "=" * 60
+          echo "📤 ATTEMPTING UPLOAD WITH OAUTH2..."
+          echo "=" * 60
+          
+          # Try OAuth2 first (no cookies needed)
+          yt-dlp --username oauth2 --password '' --no-check-certificate --verbose "$LATEST_VIDEO" 2>&1 || {
+            echo "⚠️ OAuth2 failed, trying cookies..."
+            
+            # Try cookies if available
+            if [ -n "$YT_COOKIES" ]; then
+              echo "$YT_COOKIES" > cookies.txt
+              echo "📤 Attempting upload with cookies..."
+              yt-dlp --cookies cookies.txt --no-check-certificate --verbose "$LATEST_VIDEO" 2>&1
+            fi
+          }
+          
+          echo "=" * 60
+          echo "✅ Upload attempt complete"
+          echo "=" * 60
+
+      - name: Save Video Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video
+          path: videos/*.mp4
+          retention-days: 7

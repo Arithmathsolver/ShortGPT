@@ -98,6 +98,9 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     openai_key = ApiKeyManager.get_api_key("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("GROQ_API_KEY")
     gemini_key = ApiKeyManager.get_api_key("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
+    # Check if we should force skip Gemini and go directly to Groq
+    force_groq = os.getenv("FORCE_GROQ", "false").lower() == "true"
+
     # Ordered pool of Gemini models to switch between when hitting tier quotas
     gemini_models_pool = ["gemini-2.5-flash", "gemini-1.5-flash"]
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -110,7 +113,8 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
     last_gemini_error = ""
 
     # ✅ Tier 1: Gemini Engine Execution & Model Rotation
-    if gemini_key:
+    # Skip Gemini entirely if FORCE_GROQ is enabled
+    if gemini_key and not force_groq:
         try:
             genai.configure(api_key=gemini_key)
             
@@ -162,6 +166,11 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
         except Exception as gemini_block_err:
             last_gemini_error = str(gemini_block_err)
             force_openai_fallback = True
+    else:
+        # Skip Gemini entirely - either no key or FORCE_GROQ is set
+        if force_groq:
+            print("🔄 [GROQ FORCED]: Skipping Gemini and using Groq directly.")
+        force_openai_fallback = True
 
     # 🚀 Tier 2: OpenAI / Groq Endpoint Fallback Layer
     if force_openai_fallback or (not gemini_key and openai_key):

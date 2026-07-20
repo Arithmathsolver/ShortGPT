@@ -201,4 +201,4 @@ def llm_completion(chat_prompt="", system="", temp=0.7, max_tokens=2000, remove_
             text = re.sub(r'\s+', ' ', text)
         return text
 
-    raise Exception("No active API keys found (Gemini, OpenAI, or Groq) to fulfill the completion request.")
+    raise Exception("No active API keys found (Gemini, OpenAI, or Groq) to fulfill the completion request.")v

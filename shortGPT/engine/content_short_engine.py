@@ -194,3 +194,4 @@ class ContentShortEngine(AbstractContentEngine):
                 f"---Youtube title---\n{self._db_yt_title}\n---Youtube description---\n{self._db_yt_description}")
         self._db_video_path = newFileName+".mp4"
         self._db_ready_to_upload = True
+full updated code

@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 import re
@@ -29,8 +30,11 @@ def get_authenticated_service():
         print("⚠️ service_account.json not found!")
         # List files in current directory for debugging
         print("📁 Files in current directory:")
-        for f in os.listdir('.'):
-            print(f"  - {f}")
+        try:
+            for f in os.listdir('.'):
+                print(f"  - {f}")
+        except Exception as e:
+            print(f"  Error listing files: {e}")
         return None
 
 def upload_to_youtube(video_path, title, description, keywords, privacy_status, token_data=None):
@@ -64,76 +68,21 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
     if not os.path.exists(video_path):
         print(f"❌ Video file not found: {video_path}")
         print("📁 Current directory contents:")
-        for f in os.listdir('.'):
-            print(f"  - {f}")
+        try:
+            for f in os.listdir('.'):
+                print(f"  - {f}")
+        except Exception as e:
+            print(f"  Error listing files: {e}")
         # Check if videos directory exists
         if os.path.exists('videos'):
             print("📁 Contents of videos/ directory:")
-            for f in os.listdir('videos'):
-                print(f"  - {f}")
+            try:
+                for f in os.listdir('videos'):
+                    print(f"  - {f}")
+            except Exception as e:
+                print(f"  Error listing videos: {e}")
         return {"success": False, "error": f"Video file not found: {video_path}"}
     
     # Check file size
     file_size = os.path.getsize(video_path)
-    print(f"📊 File size: {file_size / (1024*1024):.2f} MB")
-    
-    # Get authenticated service
-    youtube = get_authenticated_service()
-    
-    if not youtube:
-        print("❌ Failed to authenticate with YouTube API")
-        return {"success": False, "error": "Authentication failed"}
-    
-    try:
-        # Build the request body
-        body = {
-            'snippet': {
-                'title': title[:100] if title else "Untitled Video",  # YouTube title limit
-                'description': description[:5000] if description else "",  # YouTube description limit
-                'tags': keywords if keywords else [],
-                'categoryId': '22'  # People & Blogs category
-            },
-            'status': {
-                'privacyStatus': privacy_status if privacy_status else 'public',
-                'selfDeclaredMadeForKids': False
-            }
-        }
-        
-        # Create media file upload
-        media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-        
-        # Upload the video
-        print("📤 Uploading with YouTube API (Service Account)...")
-        request = youtube.videos().insert(
-            part='snippet,status',
-            body=body,
-            media_body=media
-        )
-        
-        response = None
-        last_progress = 0
-        while response is None:
-            status, response = request.next_chunk()
-            if status:
-                progress = int(status.progress() * 100)
-                if progress - last_progress >= 10:
-                    print(f"📊 Upload progress: {progress}%")
-                    last_progress = progress
-        
-        video_id = response['id']
-        video_url = f"https://youtu.be/{video_id}"
-        print(f"✅ Upload successful: {video_url}")
-        return {"success": True, "video_id": video_id, "url": video_url}
-        
-    except Exception as e:
-        error_msg = str(e)
-        print(f"❌ Upload failed: {error_msg}")
-        
-        if "quota" in error_msg.lower():
-            print("💡 YouTube API quota exceeded. Check your quota limits.")
-        elif "auth" in error_msg.lower():
-            print("💡 Authentication error. Check service account permissions.")
-        elif "permission" in error_msg.lower():
-            print("💡 Permission error. Make sure service account is invited as Manager in YouTube Studio.")
-        
-        return {"success": False, "error": error_msg}
+    print(f"📊 File

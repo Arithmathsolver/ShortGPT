@@ -14,17 +14,6 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Create Service Account Credentials
-        env:
-          SERVICE_ACCOUNT: ${{ secrets.SERVICE_ACCOUNT }}
-        run: |
-          if [ -n "$SERVICE_ACCOUNT" ]; then
-            echo "$SERVICE_ACCOUNT" | base64 -d > service_account.json
-            echo "✅ service_account.json created"
-          else
-            echo "⚠️ SERVICE_ACCOUNT secret not found. YouTube upload will be skipped."
-          fi
-
       - name: Install System Dependencies (FFmpeg, ImageMagick & Fonts)
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -572,6 +561,21 @@ jobs:
         env:
           SERVICE_ACCOUNT: ${{ secrets.SERVICE_ACCOUNT }}
         run: |
+          # Create service_account.json in the current step
+          if [ -n "$SERVICE_ACCOUNT" ]; then
+            echo "$SERVICE_ACCOUNT" | base64 -d > service_account.json
+            echo "✅ service_account.json created"
+          else
+            echo "❌ SERVICE_ACCOUNT secret not found"
+            exit 1
+          fi
+          
+          # Verify file exists
+          if [ ! -f "service_account.json" ]; then
+            echo "❌ service_account.json not found"
+            exit 1
+          fi
+          
           # Find latest video
           LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
           
@@ -583,13 +587,19 @@ jobs:
           echo "📤 Found video: $LATEST_VIDEO"
           echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
           
-          # Create and run upload script with video path as argument
           python3 << EOF
           import os
           import sys
           import json
           
-          # Get video path from argument (passed via $LATEST_VIDEO)
+          # Verify service_account.json exists
+          if not os.path.exists('service_account.json'):
+              print("❌ service_account.json not found in current directory")
+              print("📁 Current directory contents:")
+              for f in os.listdir('.'):
+                  print(f"  - {f}")
+              sys.exit(1)
+          
           video_path = r"$LATEST_VIDEO"
           
           if not video_path:
@@ -598,21 +608,11 @@ jobs:
           
           print(f"📤 Uploading: {video_path}")
           
-          # Add current directory to path
           sys.path.insert(0, os.getcwd())
           
-          try:
-              from shortGPT.api_utils.youtube_api import upload_to_youtube
-          except ImportError as e:
-              print(f"❌ Failed to import youtube_api: {e}")
-              # Try alternative import
-              try:
-                  from shortGPT.api_utils import upload_to_youtube
-              except ImportError as e2:
-                  print(f"❌ Alternative import also failed: {e2}")
-                  sys.exit(1)
+          # Import the upload function
+          from shortGPT.api_utils.youtube_api import upload_to_youtube
           
-          # Extract title from filename
           title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
           if not title:
               title = "ShortGPT Video"
@@ -620,7 +620,6 @@ jobs:
           print(f"📝 Title: {title}")
           print(f"🔒 Privacy: public")
           
-          # Call upload function
           result = upload_to_youtube(
               video_path=video_path,
               title=title,

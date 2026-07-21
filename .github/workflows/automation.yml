@@ -559,24 +559,23 @@ jobs:
           # Execute the main entrypoint cleanly at the script level
           main()
 
-      - name: Upload Video to YouTube
+      - name: Upload Video to YouTube (OAuth2)
         if: success()
         env:
-          SERVICE_ACCOUNT: ${{ secrets.SERVICE_ACCOUNT }}
-          LATEST_VIDEO: ${{ steps.upload.outputs.video }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
         run: |
-          # Create service_account.json in the current step
-          if [ -n "$SERVICE_ACCOUNT" ]; then
-            echo "$SERVICE_ACCOUNT" | base64 -d > service_account.json
-            echo "✅ service_account.json created"
+          # Create client_secret.json
+          if [ -n "$CLIENT_SECRET" ]; then
+            echo "$CLIENT_SECRET" | base64 -d > client_secret.json
+            echo "✅ client_secret.json created"
           else
-            echo "❌ SERVICE_ACCOUNT secret not found"
+            echo "❌ CLIENT_SECRET secret not found"
             exit 1
           fi
           
           # Verify file exists
-          if [ ! -f "service_account.json" ]; then
-            echo "❌ service_account.json not found"
+          if [ ! -f "client_secret.json" ]; then
+            echo "❌ client_secret.json not found"
             exit 1
           fi
           
@@ -591,18 +590,18 @@ jobs:
           echo "📤 Found video: $LATEST_VIDEO"
           echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
           
-          # Standalone Python upload script (doesn't import shortGPT)
           python3 << 'EOF'
           import os
           import sys
-          from google.oauth2 import service_account
+          import pickle
+          from google_auth_oauthlib.flow import InstalledAppFlow
+          from google.auth.transport.requests import Request
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
           
           SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
           
           video_path = os.environ.get("LATEST_VIDEO")
-          
           if not video_path:
               print("❌ No video path provided")
               sys.exit(1)
@@ -611,8 +610,8 @@ jobs:
               print(f"❌ Video not found: {video_path}")
               sys.exit(1)
           
-          if not os.path.exists('service_account.json'):
-              print("❌ service_account.json not found")
+          if not os.path.exists('client_secret.json'):
+              print("❌ client_secret.json not found")
               sys.exit(1)
           
           print(f"📤 Uploading: {video_path}")
@@ -626,15 +625,58 @@ jobs:
           
           print(f"📝 Title: {title}")
           print(f"🔒 Privacy: public")
+          print(f"📺 Channel: https://youtube.com/channel/UCJFsH0pnUZHnFZK5zj-t9rA")
+          
+          # OAuth2 Authentication
+          creds = None
+          
+          # Check if token.pickle exists
+          if os.path.exists('token.pickle'):
+              try:
+                  with open('token.pickle', 'rb') as token:
+                      creds = pickle.load(token)
+                  print("✅ Loaded existing token")
+              except Exception as e:
+                  print(f"⚠️ Failed to load token: {e}")
+          
+          # If no valid credentials, login
+          if not creds or not creds.valid:
+              if creds and creds.expired and creds.refresh_token:
+                  try:
+                      creds.refresh(Request())
+                      print("✅ Token refreshed")
+                  except Exception as e:
+                      print(f"⚠️ Token refresh failed: {e}")
+                      creds = None
+              
+              if not creds:
+                  if os.path.exists('client_secret.json'):
+                      try:
+                          flow = InstalledAppFlow.from_client_secrets_file(
+                              'client_secret.json', SCOPES)
+                          creds = flow.run_local_server(port=0)
+                          print("✅ OAuth2 authentication successful")
+                      except Exception as e:
+                          print(f"❌ OAuth2 flow failed: {e}")
+                          print("💡 This is expected on first run in GitHub Actions.")
+                          print("💡 You need to run this locally first to get token.pickle")
+                          sys.exit(1)
+                  else:
+                      print("❌ client_secret.json not found")
+                      sys.exit(1)
+              
+              # Save credentials
+              try:
+                  with open('token.pickle', 'wb') as token:
+                      pickle.dump(creds, token)
+                  print("✅ Token saved")
+              except Exception as e:
+                  print(f"⚠️ Failed to save token: {e}")
           
           try:
-              # Load service account credentials
-              creds = service_account.Credentials.from_service_account_file(
-                  'service_account.json', scopes=SCOPES)
               youtube = build('youtube', 'v3', credentials=creds)
-              print("✅ Service account authenticated")
+              print("✅ Authenticated with YouTube")
               
-              # Build upload request
               body = {
                   'snippet': {
                       'title': title[:100],

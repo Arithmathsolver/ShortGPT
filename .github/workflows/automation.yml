@@ -579,8 +579,9 @@ jobs:
             exit 1
           fi
           
-          # Find latest video
+          # Find latest video and export as environment variable
           LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
+          export LATEST_VIDEO="$LATEST_VIDEO"
           
           if [ -z "$LATEST_VIDEO" ]; then
             echo "⚠️ No video found to upload"
@@ -601,9 +602,12 @@ jobs:
           
           SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
           
-          video_path = os.environ.get("LATEST_VIDEO")
+          # Get video path from environment variable
+          video_path = os.environ.get('LATEST_VIDEO')
+          
           if not video_path:
               print("❌ No video path provided")
+              print("💡 Environment variable LATEST_VIDEO is not set")
               sys.exit(1)
           
           if not os.path.exists(video_path):

@@ -563,6 +563,7 @@ jobs:
         if: success()
         env:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          TOKEN_PICKLE: ${{ secrets.TOKEN_PICKLE }}
         run: |
           # Create client_secret.json
           if [ -n "$CLIENT_SECRET" ]; then
@@ -573,9 +574,23 @@ jobs:
             exit 1
           fi
           
-          # Verify file exists
+          # Create token.pickle from secret
+          if [ -n "$TOKEN_PICKLE" ]; then
+            echo "$TOKEN_PICKLE" | base64 -d > token.pickle
+            echo "✅ token.pickle created from secret"
+          else
+            echo "❌ TOKEN_PICKLE secret not found"
+            exit 1
+          fi
+          
+          # Verify files exist
           if [ ! -f "client_secret.json" ]; then
             echo "❌ client_secret.json not found"
+            exit 1
+          fi
+          
+          if [ ! -f "token.pickle" ]; then
+            echo "❌ token.pickle not found"
             exit 1
           fi
           
@@ -595,7 +610,6 @@ jobs:
           import os
           import sys
           import pickle
-          from google_auth_oauthlib.flow import InstalledAppFlow
           from google.auth.transport.requests import Request
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
@@ -614,8 +628,9 @@ jobs:
               print(f"❌ Video not found: {video_path}")
               sys.exit(1)
           
-          if not os.path.exists('client_secret.json'):
-              print("❌ client_secret.json not found")
+          if not os.path.exists('token.pickle'):
+              print("❌ token.pickle not found!")
+              print("💡 Make sure TOKEN_PICKLE secret is set")
               sys.exit(1)
           
           print(f"📤 Uploading: {video_path}")
@@ -631,51 +646,26 @@ jobs:
           print(f"🔒 Privacy: public")
           print(f"📺 Channel: https://youtube.com/channel/UCJFsH0pnUZHnFZK5zj-t9rA")
           
-          # OAuth2 Authentication
-          creds = None
+          # Load token.pickle
+          try:
+              with open('token.pickle', 'rb') as token:
+                  creds = pickle.load(token)
+              print("✅ Loaded token.pickle")
+          except Exception as e:
+              print(f"❌ Failed to load token.pickle: {e}")
+              sys.exit(1)
           
-          # Check if token.pickle exists
-          if os.path.exists('token.pickle'):
+          # Refresh if expired
+          if creds and creds.expired and creds.refresh_token:
               try:
-                  with open('token.pickle', 'rb') as token:
-                      creds = pickle.load(token)
-                  print("✅ Loaded existing token")
+                  creds.refresh(Request())
+                  print("✅ Token refreshed")
               except Exception as e:
-                  print(f"⚠️ Failed to load token: {e}")
+                  print(f"⚠️ Token refresh failed: {e}")
           
-          # If no valid credentials, login
           if not creds or not creds.valid:
-              if creds and creds.expired and creds.refresh_token:
-                  try:
-                      creds.refresh(Request())
-                      print("✅ Token refreshed")
-                  except Exception as e:
-                      print(f"⚠️ Token refresh failed: {e}")
-                      creds = None
-              
-              if not creds:
-                  if os.path.exists('client_secret.json'):
-                      try:
-                          flow = InstalledAppFlow.from_client_secrets_file(
-                              'client_secret.json', SCOPES)
-                          creds = flow.run_local_server(port=0)
-                          print("✅ OAuth2 authentication successful")
-                      except Exception as e:
-                          print(f"❌ OAuth2 flow failed: {e}")
-                          print("💡 This is expected on first run in GitHub Actions.")
-                          print("💡 You need to run this locally first to get token.pickle")
-                          sys.exit(1)
-                  else:
-                      print("❌ client_secret.json not found")
-                      sys.exit(1)
-              
-              # Save credentials
-              try:
-                  with open('token.pickle', 'wb') as token:
-                      pickle.dump(creds, token)
-                  print("✅ Token saved")
-              except Exception as e:
-                  print(f"⚠️ Failed to save token: {e}")
+              print("❌ Invalid credentials")
+              sys.exit(1)
           
           try:
               youtube = build('youtube', 'v3', credentials=creds)

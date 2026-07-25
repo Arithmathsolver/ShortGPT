@@ -719,3 +719,4 @@ jobs:
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

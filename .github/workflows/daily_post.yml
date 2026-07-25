@@ -20,11 +20,17 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick jq
+          sudo apt-get install -y ffmpeg imagemagick jq curl
           
           # Complete neutralization of restrictive ImageMagick font/path security policies
-          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//g' /etc/ImageMagick-6/policy.xml
-          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick-6/policy.xml
+          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//g' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
+          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
+          for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do
+            if [ -f "$policy" ]; then
+              sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' "$policy" || true
+              sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' "$policy" || true
+            fi
+          done
 
       - name: Verify FFmpeg installation
         run: |
@@ -33,9 +39,25 @@ jobs:
 
       - name: Install Python Requirements
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install google-generativeai==0.5.0   # ✅ pinned Gemini client library
+          pip install --upgrade pip setuptools wheel
+          
+          # Install torch CPU-only first
+          pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+          
+          # Pin Pillow, MoviePy
+          pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai>=1.0.0" "numpy<2.0.0"
+          
+          # Install core video pipeline components
+          pip install --no-cache-dir yt-dlp tiktoken python-dotenv pandas tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
+          
+          # Install YouTube API dependencies
+          pip install --no-cache-dir google-api-python-client google-auth-oauthlib google-auth-httplib2
+          
+          # Install google-generativeai
+          pip install --no-cache-dir google-generativeai
+          
+          # Force clean install shortGPT
+          pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
@@ -54,20 +76,34 @@ jobs:
 
       - name: Run ShortGPT Automation
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-2.5-flash   # ✅ Updated to active model version
-          
-          # 🚀 CRITICAL FAILOVER PARAMETERS FOR GROQ API WRAPPER INTERCEPTIONS
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_BASE: "https://api.groq.com/openai/v1"
           OPENAI_MODEL: "llama-3.1-8b-instant"
-          
+          FORCE_GROQ: "true"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: "gemini-2.5-flash"
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
+          SHORTGPT_NICHE: "Deep Sea Mysteries"
+          SHORTGPT_LANG: "English"
+          SHORTGPT_VOICE: "en-US-ChristopherNeural"
+          IMAGEMAGICK_BINARY: "/usr/bin/convert"
         run: |
           echo "Using GEMINI_MODEL=$GEMINI_MODEL"
+          echo "Using GROQ_API_KEY=${#GROQ_API_KEY} chars"
+          echo "Using OPENAI_API_BASE=$OPENAI_API_BASE"
+          echo "Using OPENAI_MODEL=$OPENAI_MODEL"
           if [ -n "$OPENAI_API_KEY" ]; then
             echo "✅ Groq failover backup pipeline configured successfully."
           fi
           python run_automation.py
+
+      - name: Upload Video as Backup Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video
+          path: videos/*.mp4
+          retention-days: 7

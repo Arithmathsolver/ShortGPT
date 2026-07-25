@@ -23,10 +23,9 @@ jobs:
           sudo apt-get install -y ffmpeg imagemagick jq curl
           
           # Complete neutralization of restrictive ImageMagick font/path security policies
-          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"//g' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
-          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick-6/policy.xml 2>/dev/null || true
           for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do
             if [ -f "$policy" ]; then
+              echo "Applying security bypass patch to: $policy"
               sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' "$policy" || true
               sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' "$policy" || true
             fi
@@ -62,18 +61,6 @@ jobs:
       - name: Fix Python path
         run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)" >> $GITHUB_ENV
 
-      - name: Check Gemini Key Presence
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "❌ GEMINI_API_KEY is empty"
-            exit 1
-          else
-            echo "✅ GEMINI_API_KEY is set"
-            echo "Length: ${#GEMINI_API_KEY}"
-          fi
-
       - name: Run ShortGPT Automation
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -85,20 +72,159 @@ jobs:
           GEMINI_MODEL: "gemini-2.5-flash"
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_API_KEY }}
+          IMAGEMAGICK_BINARY: "/usr/bin/convert"
           SHORTGPT_NICHE: "Deep Sea Mysteries"
           SHORTGPT_LANG: "English"
           SHORTGPT_VOICE: "en-US-ChristopherNeural"
-          IMAGEMAGICK_BINARY: "/usr/bin/convert"
         run: |
           echo "Using GEMINI_MODEL=$GEMINI_MODEL"
-          echo "Using GROQ_API_KEY=${#GROQ_API_KEY} chars"
           echo "Using OPENAI_API_BASE=$OPENAI_API_BASE"
           echo "Using OPENAI_MODEL=$OPENAI_MODEL"
           if [ -n "$OPENAI_API_KEY" ]; then
             echo "✅ Groq failover backup pipeline configured successfully."
           fi
           python run_automation.py
+
+      - name: Upload Video to YouTube (OAuth2)
+        if: success()
+        env:
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          TOKEN_PICKLE: ${{ secrets.TOKEN_PICKLE }}
+        run: |
+          # Create client_secret.json
+          if [ -n "$CLIENT_SECRET" ]; then
+            echo "$CLIENT_SECRET" | base64 -d > client_secret.json
+            echo "✅ client_secret.json created"
+          else
+            echo "❌ CLIENT_SECRET secret not found"
+            exit 1
+          fi
+          
+          # Create token.pickle from secret
+          if [ -n "$TOKEN_PICKLE" ]; then
+            echo "$TOKEN_PICKLE" | base64 -d > token.pickle
+            echo "✅ token.pickle created from secret"
+          else
+            echo "❌ TOKEN_PICKLE secret not found"
+            exit 1
+          fi
+          
+          # Verify files exist
+          if [ ! -f "client_secret.json" ]; then
+            echo "❌ client_secret.json not found"
+            exit 1
+          fi
+          
+          if [ ! -f "token.pickle" ]; then
+            echo "❌ token.pickle not found"
+            exit 1
+          fi
+          
+          # Find latest video
+          LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
+          export LATEST_VIDEO="$LATEST_VIDEO"
+          
+          if [ -z "$LATEST_VIDEO" ]; then
+            echo "⚠️ No video found to upload"
+            exit 0
+          fi
+          
+          echo "📤 Found video: $LATEST_VIDEO"
+          echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
+          
+          python3 << 'EOF'
+          import os
+          import sys
+          import pickle
+          from google.auth.transport.requests import Request
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          
+          SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+          
+          video_path = os.environ.get('LATEST_VIDEO')
+          
+          if not video_path:
+              print("❌ No video path provided")
+              sys.exit(1)
+          
+          if not os.path.exists(video_path):
+              print(f"❌ Video not found: {video_path}")
+              sys.exit(1)
+          
+          if not os.path.exists('token.pickle'):
+              print("❌ token.pickle not found!")
+              sys.exit(1)
+          
+          print(f"📤 Uploading: {video_path}")
+          
+          title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
+          if not title:
+              title = "ShortGPT Video"
+          
+          description = "Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation"
+          keywords = ["shorts", "facts", "deepsea", "ai", "automation"]
+          
+          print(f"📝 Title: {title}")
+          print(f"🔒 Privacy: public")
+          
+          # Load token.pickle
+          try:
+              with open('token.pickle', 'rb') as token:
+                  creds = pickle.load(token)
+              print("✅ Loaded token.pickle")
+          except Exception as e:
+              print(f"❌ Failed to load token.pickle: {e}")
+              sys.exit(1)
+          
+          # Refresh if expired
+          if creds and creds.expired and creds.refresh_token:
+              try:
+                  creds.refresh(Request())
+                  print("✅ Token refreshed")
+              except Exception as e:
+                  print(f"⚠️ Token refresh failed: {e}")
+          
+          if not creds or not creds.valid:
+              print("❌ Invalid credentials")
+              sys.exit(1)
+          
+          try:
+              youtube = build('youtube', 'v3', credentials=creds)
+              print("✅ Authenticated with YouTube")
+              
+              body = {
+                  'snippet': {
+                      'title': title[:100],
+                      'description': description[:5000],
+                      'tags': keywords,
+                      'categoryId': '22'
+                  },
+                  'status': {
+                      'privacyStatus': 'public',
+                      'selfDeclaredMadeForKids': False
+                  }
+              }
+              
+              media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+              request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+              
+              response = None
+              last_progress = 0
+              while response is None:
+                  status, response = request.next_chunk()
+                  if status:
+                      progress = int(status.progress() * 100)
+                      if progress - last_progress >= 10:
+                          print(f"📊 Upload progress: {progress}%")
+                          last_progress = progress
+              
+              print(f"✅ Upload successful: https://youtu.be/{response['id']}")
+              
+          except Exception as e:
+              print(f"❌ Upload failed: {e}")
+              sys.exit(1)
+          EOF
 
       - name: Upload Video as Backup Artifact
         if: always()
@@ -107,3 +233,12 @@ jobs:
           name: generated-video
           path: videos/*.mp4
           retention-days: 7
+
+      - name: Complete
+        if: always()
+        run: |
+          echo "========================================================="
+          echo "🎉 WORKFLOW COMPLETE!"
+          echo "========================================================="
+          ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

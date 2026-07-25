@@ -85,4 +85,65 @@ def upload_to_youtube(video_path, title, description, keywords, privacy_status, 
     
     # Check file size
     file_size = os.path.getsize(video_path)
-    print(f"📊 File
+    print(f"📊 File size: {file_size / (1024*1024):.2f} MB")
+    
+    # Get authenticated service
+    youtube = get_authenticated_service()
+    
+    if not youtube:
+        print("❌ Failed to authenticate with YouTube API")
+        return {"success": False, "error": "Authentication failed"}
+    
+    try:
+        # Build the request body
+        body = {
+            'snippet': {
+                'title': title[:100] if title else "Untitled Video",
+                'description': description[:5000] if description else "",
+                'tags': keywords if keywords else [],
+                'categoryId': '22'
+            },
+            'status': {
+                'privacyStatus': privacy_status if privacy_status else 'public',
+                'selfDeclaredMadeForKids': False
+            }
+        }
+        
+        # Create media file upload
+        media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+        
+        # Upload the video
+        print("📤 Uploading with YouTube API (Service Account)...")
+        request = youtube.videos().insert(
+            part='snippet,status',
+            body=body,
+            media_body=media
+        )
+        
+        response = None
+        last_progress = 0
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                progress = int(status.progress() * 100)
+                if progress - last_progress >= 10:
+                    print(f"📊 Upload progress: {progress}%")
+                    last_progress = progress
+        
+        video_id = response['id']
+        video_url = f"https://youtu.be/{video_id}"
+        print(f"✅ Upload successful: {video_url}")
+        return {"success": True, "video_id": video_id, "url": video_url}
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Upload failed: {error_msg}")
+        
+        if "quota" in error_msg.lower():
+            print("💡 YouTube API quota exceeded. Check your quota limits.")
+        elif "auth" in error_msg.lower():
+            print("💡 Authentication error. Check service account permissions.")
+        elif "permission" in error_msg.lower():
+            print("💡 Permission error. Make sure service account is invited as Manager in YouTube Studio.")
+        
+        return {"success": False, "error": error_msg}

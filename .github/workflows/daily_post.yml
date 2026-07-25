@@ -55,6 +55,9 @@ jobs:
           # Install google-generativeai
           pip install --no-cache-dir google-generativeai
           
+          # Install pyyaml (needed for config)
+          pip install --no-cache-dir pyyaml
+          
           # Force clean install shortGPT
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 

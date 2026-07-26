@@ -57,16 +57,18 @@ jobs:
 
       - name: Create Local Background Assets
         run: |
-          # Generate a 60-second test video with text
-          ffmpeg -f lavfi -i color=c=blue:s=1080x1920:d=60:r=25 \
-                 -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2" \
-                 -an -vcodec libx264 -pix_fmt yuv420p test_background.mp4
+          # Generate a 60-second background video with a blue gradient
+          ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+                 -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
+                 -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
           
-          # Create a silent audio file
-          ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 60 -acodec libmp3lame test_audio.mp3
+          # Create a soft ambient audio track
+          ffmpeg -f lavfi -i "sine=frequency=432:duration=60:sample_rate=44100" \
+                 -af "volume=0.3,aecho=0.8:0.9:1000|0.6:0.9" \
+                 -acodec libmp3lame -b:a 128k test_audio.mp3
           
-          echo "✅ Local assets created: test_background.mp4, test_audio.mp3"
-          ls -la test_background.mp4 test_audio.mp3
+          echo "✅ Local assets created:"
+          ls -lh test_background.mp4 test_audio.mp3
 
       - name: Execute Embedded Automation Engine
         env:
@@ -85,6 +87,7 @@ jobs:
           import time
           import traceback
           import subprocess
+          import shutil
           from pathlib import Path
 
           # Force-inject API key options into environment space so core files never ask for prompts
@@ -185,6 +188,49 @@ jobs:
                   is_video = "audio" not in asset_type.lower() and "music" not in asset_type.lower()
                   generate_synthetic_backup(dest_path, "video" if is_video else "audio")
                   return dest_path
+
+          # =====================================================================
+          # CRITICAL FIX: Override the AssetDatabase to use local files
+          # =====================================================================
+          try:
+              from shortGPT.config import asset_db
+              
+              # Create a custom database that always returns our local files
+              class PatchedAssetDatabase:
+                  @staticmethod
+                  def get_asset_link(key):
+                      key_str = str(key).lower()
+                      print(f"🔍 Asset request for: '{key_str}'")
+                      
+                      # Check if we have local files ready
+                      if os.path.exists("test_background.mp4") and os.path.getsize("test_background.mp4") > 100000:
+                          print(f"✅ Using local test_background.mp4 for video asset")
+                          return "test_background.mp4"
+                      elif os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10000:
+                          print(f"✅ Using local test_audio.mp3 for audio asset")
+                          return "test_audio.mp3"
+                      
+                      # Fallback to downloads
+                      if "music" in key_str or "audio" in key_str:
+                          return download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Audio File")
+                      return download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
+                  
+                  @staticmethod
+                  def get_asset_duration(key):
+                      return 120.0
+                  
+                  @staticmethod
+                  def get_asset_name(key):
+                      return str(key)
+              
+              # Override the database class
+              if hasattr(asset_db, 'AssetDatabase'):
+                  asset_db.AssetDatabase.get_asset_link = PatchedAssetDatabase.get_asset_link
+                  asset_db.AssetDatabase.get_asset_duration = PatchedAssetDatabase.get_asset_duration
+                  print("✅ AssetDatabase patched to use local files")
+                  
+          except Exception as db_patch_err:
+              print(f"⚠️ Database patch notice: {db_patch_err}")
 
           # =====================================================================
           # CORE MOVIEPY LOW-LEVEL REGEX PARSER INTERCEPTION PATCH
@@ -336,33 +382,6 @@ jobs:
               print(f"⚠️ Low-level text routing patch notice: {patch_err}")
 
           # =====================================================================
-          # CRITICAL ASSET ENGINE EXTENSION PATCH (LOCAL FILE PATH FORCE ROUTER)
-          # =====================================================================
-          try:
-              from shortGPT.config import asset_db
-              if hasattr(asset_db.AssetDatabase, 'get_asset_link'):
-                  asset_db.AssetDatabase._original_get_asset_link = asset_db.AssetDatabase.get_asset_link
-                  
-                  def dynamic_fallback_get_asset_link(key):
-                      normalized_key = str(key).lower()
-                      if "music" in normalized_key or "audio" in normalized_key:
-                          return download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Audio File")
-                      return download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
-                          
-                  asset_db.AssetDatabase.get_asset_link = dynamic_fallback_get_asset_link
-
-              if hasattr(asset_db.AssetDatabase, 'get_asset_duration'):
-                  asset_db.AssetDatabase._original_get_asset_duration = asset_db.AssetDatabase.get_asset_duration
-                  
-                  def dynamic_fallback_get_asset_duration(key):
-                      return 120.0
-                          
-                  asset_db.AssetDatabase.get_asset_duration = dynamic_fallback_get_asset_duration
-                  print("✅ Asset Engine Protection: Automated link downloaders and local file verifications active.")
-          except Exception as db_patch_err:
-              print(f"⚠️ Asset validation patch notice: {db_patch_err}")
-
-          # =====================================================================
           # EDITING UTILS INTERCEPTION PATCH (FIX FOR BOT BLOCKS & MISSING FILES)
           # =====================================================================
           try:
@@ -379,6 +398,11 @@ jobs:
                           
                       if str(working_source).startswith("http"):
                           working_source = download_asset_locally(working_source, LOCAL_VIDEO_PATH, "Video File")
+                      
+                      # If local test_background exists, use it
+                      if os.path.exists("test_background.mp4") and os.path.getsize("test_background.mp4") > 100000:
+                          print(f"🎬 Using local test_background.mp4 as video source")
+                          working_source = "test_background.mp4"
                           
                       try:
                           import subprocess
@@ -501,23 +525,29 @@ jobs:
               print("=========================================================")
 
               # Verify local assets exist
-              if not os.path.exists("test_background.mp4"):
-                  print("❌ test_background.mp4 not found! Creating one now...")
+              local_video = "test_background.mp4"
+              local_audio = "test_audio.mp3"
+              
+              if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
+                  print("⚠️ test_background.mp4 missing or too small! Creating one now...")
                   subprocess.run([
-                      'ffmpeg', '-f', 'lavfi', '-i', 'color=c=blue:s=1080x1920:d=60:r=25',
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', 'test_background.mp4'
+                      'ffmpeg', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=60:r=30',
+                      '-vf', "drawtext=text='Deep Sea':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2",
+                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', local_video
                   ])
               
-              if not os.path.exists("test_audio.mp3"):
-                  print("❌ test_audio.mp3 not found! Creating one now...")
+              if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
+                  print("⚠️ test_audio.mp3 missing or too small! Creating one now...")
                   subprocess.run([
                       'ffmpeg', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-                      '-t', '60', '-acodec', 'libmp3lame', 'test_audio.mp3'
+                      '-t', '60', '-acodec', 'libmp3lame', local_audio
                   ])
               
               print(f"📁 Local assets verified:")
-              print(f"   - test_background.mp4: {os.path.getsize('test_background.mp4') if os.path.exists('test_background.mp4') else 'NOT FOUND'} bytes")
-              print(f"   - test_audio.mp3: {os.path.getsize('test_audio.mp3') if os.path.exists('test_audio.mp3') else 'NOT FOUND'} bytes")
+              if os.path.exists(local_video):
+                  print(f"   - test_background.mp4: {os.path.getsize(local_video):,} bytes")
+              if os.path.exists(local_audio):
+                  print(f"   - test_audio.mp3: {os.path.getsize(local_audio):,} bytes")
 
               download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Initial Background Video")
               download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Initial Background Audio")
@@ -554,13 +584,13 @@ jobs:
 
               try:
                   # =============================================================
-                  # FIXED: Using local files instead of remote asset names
+                  # FIXED: Use background_video_name with local file names
                   # =============================================================
                   content_engine = FactsShortEngine(
                       voiceModule=voice_module,
                       facts_type=topic,
-                      background_video_path="test_background.mp4",  # LOCAL FILE
-                      background_music_path="test_audio.mp3",       # LOCAL FILE
+                      background_video_name="test_background.mp4",  # Use local file name
+                      background_music_name="test_audio.mp3",       # Use local file name
                       language=lang_enum
                   )
 
@@ -657,47 +687,4 @@ jobs:
           echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
           
           # Check if video is valid (not 4KB)
-          VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
-          if [ "$VIDEO_SIZE" -lt 10240 ]; then
-            echo "❌ Video file is too small ($VIDEO_SIZE bytes) - likely corrupt!"
-            echo "⚠️ Skipping upload to prevent YouTube processing failure"
-            exit 0
-          fi
-          
-          python3 << 'EOF'
-          import os
-          import sys
-          import pickle
-          from google.auth.transport.requests import Request
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-          
-          SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-          
-          # Get video path from environment variable
-          video_path = os.environ.get('LATEST_VIDEO')
-          
-          if not video_path:
-              print("❌ No video path provided")
-              print("💡 Environment variable LATEST_VIDEO is not set")
-              sys.exit(1)
-          
-          if not os.path.exists(video_path):
-              print(f"❌ Video not found: {video_path}")
-              sys.exit(1)
-          
-          if not os.path.exists('token.pickle'):
-              print("❌ token.pickle not found!")
-              print("💡 Make sure TOKEN_PICKLE secret is set")
-              sys.exit(1)
-          
-          print(f"📤 Uploading: {video_path}")
-          
-          title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
-          if not title:
-              title = "ShortGPT Video"
-          
-          description = "Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation"
-          keywords = ["shorts", "facts", "deepsea", "ai", "automation"]
-          
-          print(f"📝
+          VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev

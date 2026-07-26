@@ -560,12 +560,6 @@ jobs:
           echo ""
           echo "📊 File sizes:"
           find videos/ -name "*.mp4" -exec ls -lh {} \; 2>/dev/null || echo "No MP4 files found"
-          echo ""
-          echo "📊 Video info:"
-          for f in videos/*.mp4 2>/dev/null; do
-            echo "--- $f ---"
-            ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "$f" 2>/dev/null || echo "Could not probe"
-          done
           echo "========================================================="
 
       - name: Convert Video for YouTube Shorts Compatibility
@@ -607,10 +601,6 @@ jobs:
           
           echo "✅ Video converted for YouTube Shorts"
           echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
-          
-          # Verify the converted video
-          echo "📊 Converted video info:"
-          ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 "$RENDERED_VIDEO"
 
       - name: Upload Video to YouTube (OAuth2)
         if: success()
@@ -665,15 +655,6 @@ jobs:
             echo "❌ Video too small ($VIDEO_SIZE bytes) - likely corrupt!"
             echo "⚠️ Skipping upload"
             exit 0
-          fi
-          
-          # Check video duration (should be under 60 seconds for Shorts)
-          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$LATEST_VIDEO" 2>/dev/null | cut -d. -f1)
-          if [ -n "$DURATION" ] && [ "$DURATION" -gt 60 ]; then
-            echo "⚠️ Video is $DURATION seconds long. YouTube Shorts should be under 60 seconds."
-            echo "⚠️ This may cause processing issues."
-          else
-            echo "✅ Video duration: ${DURATION:-unknown} seconds"
           fi
           
           python3 << 'EOF'
@@ -779,3 +760,4 @@ jobs:
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "=========================================================" 

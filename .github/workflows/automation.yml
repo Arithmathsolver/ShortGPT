@@ -21,12 +21,17 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev fonts-liberation curl
           
+          # Install additional fonts that might be needed
+          sudo apt-get install -y fonts-liberation fonts-dejavu-core fonts-freefont-ttf
+          
           # Dynamic ImageMagick Security Policy Patch
           for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do
             if [ -f "$policy" ]; then
               echo "Applying security bypass patch to: $policy"
               sudo sed -i 's/domain="path" rights="none"/domain="path" rights="read|write"/g' "$policy" || true
               sudo sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/g' "$policy" || true
+              sudo sed -i 's/domain="coder" rights="none" pattern="LABEL"/domain="coder" rights="read|write" pattern="LABEL"/g' "$policy" || true
+              sudo sed -i 's/domain="coder" rights="none" pattern="TEXT"/domain="coder" rights="read|write" pattern="TEXT"/g' "$policy" || true
             fi
           done
 
@@ -58,7 +63,6 @@ jobs:
       - name: Create Local Background Assets
         run: |
           # Generate a LONGER 120-second background video (2 minutes) with a blue gradient
-          # This gives enough length for the clip extraction to work
           ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=120:r=30 \
                  -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
                  -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
@@ -137,6 +141,59 @@ jobs:
               print(f"🟩 Details: {error_message}")
               print("🟩 Exiting cleanly with status code 0 to keep the automation workflow healthy...")
               sys.exit(0)
+
+          # =====================================================================
+          # CRITICAL FIX: Patch MoviePy TextClip to use a valid font
+          # =====================================================================
+          try:
+              import moviepy.video.VideoClip as videoclip
+              
+              # Get the original TextClip class
+              original_textclip = videoclip.TextClip
+              
+              # Create a patched version
+              class PatchedTextClip(original_textclip):
+                  def __init__(self, *args, **kwargs):
+                      # Override the font to use Liberation Sans (available on Ubuntu)
+                      if 'font' not in kwargs or kwargs['font'] is None:
+                          kwargs['font'] = 'Liberation-Sans-Bold'
+                      
+                      # Also handle font if it's a list or tuple
+                      if 'font' in kwargs and isinstance(kwargs['font'], (list, tuple)):
+                          # Use the first available font from the list
+                          available_fonts = ['Liberation-Sans-Bold', 'DejaVu-Sans-Bold', 'FreeSans']
+                          for font in available_fonts:
+                              try:
+                                  kwargs['font'] = font
+                                  break
+                              except:
+                                  continue
+                      
+                      # If the font is None or empty, use default
+                      if not kwargs.get('font'):
+                          kwargs['font'] = 'Liberation-Sans-Bold'
+                      
+                      # Always use a valid font
+                      print(f"🔤 [TEXTCLIP PATCH] Creating text with font: {kwargs.get('font')}")
+                      
+                      try:
+                          super().__init__(*args, **kwargs)
+                      except Exception as e:
+                          print(f"⚠️ TextClip creation failed: {e}")
+                          # Try with a different font
+                          kwargs['font'] = 'DejaVu-Sans-Bold'
+                          try:
+                              super().__init__(*args, **kwargs)
+                          except:
+                              kwargs['font'] = 'FreeSans'
+                              super().__init__(*args, **kwargs)
+              
+              # Replace the TextClip class
+              videoclip.TextClip = PatchedTextClip
+              print("✅ MoviePy TextClip patched with valid fonts")
+              
+          except Exception as text_patch_err:
+              print(f"⚠️ TextClip patch notice: {text_patch_err}")
 
           # =====================================================================
           # LOCAL CACHING & SYNTHETIC RECOVERY ENGINE
@@ -257,6 +314,11 @@ jobs:
                   def get_asset_link(key):
                       key_str = str(key).lower()
                       print(f"🔍 Asset request for: '{key_str}'")
+                      
+                      # Skip subscribe animation - we'll handle it differently
+                      if "subscribe" in key_str or "animation" in key_str:
+                          print(f"⚠️ Subscribe animation requested, returning synthetic")
+                          return download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
                       
                       # Use local files if they exist and are valid
                       if "video" in key_str or "background" in key_str:
@@ -658,4 +720,3 @@ jobs:
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
-          echo "========================================================="

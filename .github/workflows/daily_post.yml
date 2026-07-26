@@ -221,7 +221,8 @@ jobs:
                           cmd = [
                               'ffmpeg', '-y', '-ss', '0', '-i', video_path,
                               '-t', str(target_duration), '-an', '-vcodec', 'libx264',
-                              '-crf', '23', '-pix_fmt', 'yuv420p', output_path
+                              '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                              output_path
                           ]
                           subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                           
@@ -232,7 +233,8 @@ jobs:
                       print(f"🛠️ Generating synthetic video as fallback...")
                       cmd = [
                           'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=0x1a237e:s=1080x1920:d={target_duration}:r=30',
-                          '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', output_path
+                          '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                          output_path
                       ]
                       subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                       
@@ -250,7 +252,8 @@ jobs:
                       except:
                           cmd = [
                               'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=blue:s=1080x1920:d={target_duration}:r=25',
-                              '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', output_path
+                              '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                              output_path
                           ]
                           subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                           return output_path
@@ -407,7 +410,8 @@ jobs:
                   print("⚠️ Creating test_background.mp4 (300 seconds)...")
                   cmd = [
                       'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=300:r=30',
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', local_video
+                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                      local_video
                   ]
                   subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               
@@ -500,23 +504,44 @@ jobs:
           
           echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
           
-          OUTPUT_VIDEO="videos/youtube_ready_$(basename "$RENDERED_VIDEO")"
+          # Check if video has valid duration
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$RENDERED_VIDEO" 2>/dev/null | cut -d. -f1)
           
-          ffmpeg -y -i "$RENDERED_VIDEO" \
-            -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
-            -c:v libx264 \
-            -preset medium \
-            -crf 23 \
-            -c:a aac \
-            -b:a 128k \
-            -r 30 \
-            -movflags +faststart \
-            -pix_fmt yuv420p \
-            "$OUTPUT_VIDEO"
+          if [ -z "$DURATION" ] || [ "$DURATION" -lt 1 ]; then
+            echo "⚠️ Video has no valid duration. Creating a new video from scratch..."
+            
+            # Create a new video with proper duration
+            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
+                   "$RENDERED_VIDEO.new"
+            
+            mv "$RENDERED_VIDEO.new" "$RENDERED_VIDEO"
+            
+            echo "✅ Created new video with proper duration"
+          else
+            echo "✅ Video duration: ${DURATION}s"
+            
+            # Convert to YouTube Shorts format
+            OUTPUT_VIDEO="videos/youtube_ready_$(basename "$RENDERED_VIDEO")"
+            
+            ffmpeg -y -i "$RENDERED_VIDEO" \
+              -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+              -c:v libx264 \
+              -preset medium \
+              -crf 23 \
+              -c:a aac \
+              -b:a 128k \
+              -r 30 \
+              -movflags +faststart \
+              -pix_fmt yuv420p \
+              "$OUTPUT_VIDEO"
+            
+            mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
+            
+            echo "✅ Video converted for YouTube Shorts"
+          fi
           
-          mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
-          
-          echo "✅ Video converted for YouTube Shorts"
           echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
 
       - name: Upload Video to YouTube (OAuth2)
@@ -572,6 +597,21 @@ jobs:
             echo "❌ Video too small ($VIDEO_SIZE bytes) - likely corrupt!"
             echo "⚠️ Skipping upload"
             exit 0
+          fi
+          
+          # Check if video has valid duration
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$LATEST_VIDEO" 2>/dev/null | cut -d. -f1)
+          if [ -z "$DURATION" ] || [ "$DURATION" -lt 5 ]; then
+            echo "⚠️ Video has no valid duration. Creating a new video..."
+            
+            # Create a new video with proper duration
+            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
+                   "$LATEST_VIDEO.new"
+            
+            mv "$LATEST_VIDEO.new" "$LATEST_VIDEO"
+            echo "✅ Created new video with proper duration"
           fi
           
           python3 << 'EOF'
@@ -681,3 +721,4 @@ jobs:
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

@@ -57,6 +57,9 @@ jobs:
           # Install pyyaml
           pip install --no-cache-dir pyyaml
           
+          # Install requests for image downloading
+          pip install --no-cache-dir requests
+          
           # Force clean install shortGPT directly
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
@@ -75,6 +78,16 @@ jobs:
           echo "✅ Local assets created (120 seconds):"
           ls -lh test_background.mp4 test_audio.mp3
 
+      - name: Create Fallback Images
+        run: |
+          # Create placeholder images for the video
+          for i in 1 2 3 4 5; do
+            ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=1:r=1 \
+                   -vf "drawtext=text='Deep Sea Fact $i':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                   -frames:v 1 "fallback_image_$i.png"
+          done
+          echo "✅ Created fallback images"
+
       - name: Execute Embedded Automation Engine
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -85,6 +98,7 @@ jobs:
           SHORTGPT_NICHE: "Deep Sea Mysteries"
           SHORTGPT_LANG: "English"
           SHORTGPT_VOICE: "en-US-ChristopherNeural"
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
         shell: python
         run: |
           import os
@@ -194,6 +208,49 @@ jobs:
               
           except Exception as text_patch_err:
               print(f"⚠️ TextClip patch notice: {text_patch_err}")
+
+          # =====================================================================
+          # CRITICAL FIX: Patch image generation to use fallback images
+          # =====================================================================
+          try:
+              from shortGPT.engine import content_short_engine
+              
+              # Save the original method
+              original_generate_images = content_short_engine.ShortEngine._generateImageUrls
+              
+              def patched_generate_images(self):
+                  """Generate image URLs with fallback to local images"""
+                  try:
+                      # Try the original method first
+                      return original_generate_images(self)
+                  except Exception as e:
+                      print(f"⚠️ Image generation failed: {e}. Using fallback images.")
+                      # Use local fallback images
+                      fallback_images = []
+                      for i in range(1, 6):
+                          img_path = f"fallback_image_{i}.png"
+                          if os.path.exists(img_path):
+                              fallback_images.append(img_path)
+                          else:
+                              # Create a fallback image on the fly
+                              from PIL import Image, ImageDraw, ImageFont
+                              img = Image.new('RGB', (1080, 1920), color=(26, 35, 126))
+                              d = ImageDraw.Draw(img)
+                              d.text((540, 960), f"Deep Sea Fact", fill=(255, 255, 255))
+                              img_path = f"fallback_image_{i}.png"
+                              img.save(img_path)
+                              fallback_images.append(img_path)
+                      
+                      # Set the images in the engine
+                      self._db_image_urls = fallback_images
+                      return fallback_images
+              
+              # Replace the method
+              content_short_engine.ShortEngine._generateImageUrls = patched_generate_images
+              print("✅ Image generation patched with fallback")
+              
+          except Exception as image_patch_err:
+              print(f"⚠️ Image patch notice: {image_patch_err}")
 
           # =====================================================================
           # LOCAL CACHING & SYNTHETIC RECOVERY ENGINE
@@ -451,7 +508,7 @@ jobs:
                   "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
                   "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
                   "channels_amount": int(os.getenv("SHORTGPT_BATCH_COUNT", "1")),
-                  "use_images": os.getenv("SHORTGPT_USE_IMAGES", "False").lower() == "true"
+                  "use_images": os.getenv("SHORTGPT_USE_IMAGES", "True").lower() == "true"
               }
 
           def sanitize_numpy_types(obj):
@@ -578,12 +635,7 @@ jobs:
           # Create a YouTube-compatible version
           OUTPUT_VIDEO="videos/youtube_ready_$(basename "$RENDERED_VIDEO")"
           
-          # Convert to YouTube Shorts format:
-          # - 1080x1920 resolution (9:16 aspect ratio for Shorts)
-          # - H.264 codec
-          # - AAC audio
-          # - 30 fps
-          # - MP4 container with faststart for streaming
+          # Convert to YouTube Shorts format
           ffmpeg -y -i "$RENDERED_VIDEO" \
             -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
             -c:v libx264 \
@@ -738,26 +790,3 @@ jobs:
                           print(f"📊 Upload progress: {progress}%")
                           last_progress = progress
               
-              print(f"✅ Upload successful: https://youtu.be/{response['id']}")
-              
-          except Exception as e:
-              print(f"❌ Upload failed: {e}")
-              sys.exit(1)
-          EOF
-
-      - name: Upload Video as Backup Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-video
-          path: videos/*.mp4
-          retention-days: 7
-
-      - name: Complete
-        if: always()
-        run: |
-          echo "========================================================="
-          echo "🎉 WORKFLOW COMPLETE!"
-          echo "========================================================="
-          ls -la videos/ 2>/dev/null || echo "No videos found"
-          echo "=========================================================" 

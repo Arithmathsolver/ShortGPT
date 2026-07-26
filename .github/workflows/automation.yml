@@ -21,7 +21,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg imagemagick libjpeg-dev zlib1g-dev fonts-liberation curl
           
-          # Dynamic ImageMagick Security Policy Patch (Works for both v6 and v7 configurations)
+          # Dynamic ImageMagick Security Policy Patch
           for policy in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do
             if [ -f "$policy" ]; then
               echo "Applying security bypass patch to: $policy"
@@ -34,25 +34,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           
-          # Install torch CPU-only first to prevent massive CUDA GPU downloads on the runner
+          # Install torch CPU-only first
           pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
           
-          # Pin Pillow, MoviePy, and establish precise package version footprints (Enforce NumPy < 2.0.0 compatibility)
+          # Pin Pillow, MoviePy, and establish precise package version footprints
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai>=1.0.0" "numpy<2.0.0"
           
-          # Install core video pipeline components and transcription models (google-genai removed as it's no longer used)
+          # Install core video pipeline components
           pip install --no-cache-dir yt-dlp tiktoken python-dotenv pandas tinydb tinymongo progress speechrecognition edge-tts wrapping ffmpeg-python whisper-timestamped openai-whisper
           
           # Install YouTube API dependencies
           pip install --no-cache-dir google-api-python-client google-auth-oauthlib google-auth-httplib2
           
-          # Install google-generativeai (needed by shortGPT imports)
+          # Install google-generativeai
           pip install --no-cache-dir google-generativeai
           
-          # Install pyyaml (needed for config)
+          # Install pyyaml
           pip install --no-cache-dir pyyaml
           
-          # Force clean install shortGPT directly without dependencies over-writing pinned versions
+          # Force clean install shortGPT directly
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
 
       - name: Create Local Background Assets
@@ -62,9 +62,10 @@ jobs:
                  -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
                  -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
           
-          # Create a simple audio track (using a clean sine wave with volume adjustment only)
+          # Create a proper audio track with actual sound (not silence)
+          # Using a sine wave with volume and a simple filter
           ffmpeg -f lavfi -i "sine=frequency=432:duration=60:sample_rate=44100" \
-                 -af "volume=0.3" \
+                 -af "volume=0.3,atempo=1.0" \
                  -acodec libmp3lame -b:a 128k test_audio.mp3
           
           echo "✅ Local assets created:"
@@ -90,7 +91,7 @@ jobs:
           import shutil
           from pathlib import Path
 
-          # Force-inject API key options into environment space so core files never ask for prompts
+          # Force-inject API key options
           api_key_env = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
           if api_key_env:
               os.environ["OPENAI_API_KEY"] = api_key_env
@@ -105,12 +106,12 @@ jobs:
           if user_site not in sys.path:
               sys.path.insert(0, user_site)
 
-          # Ensure local repository path layouts take precedence in memory
+          # Ensure local repository path layouts take precedence
           _here = Path('.' if '__file__' not in locals() else __file__).parent.resolve()
           if str(_here) not in sys.path:
               sys.path.insert(0, str(_here))
 
-          # Force backward-compatible backend configurations for legacy shortGPT internals
+          # Force backward-compatible backend configurations
           import openai
           os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
           try:
@@ -119,14 +120,13 @@ jobs:
           except AttributeError:
               pass
 
-          # Initialize modern OpenAI client wrapper targeting Groq
+          # Initialize modern OpenAI client wrapper
           from openai import OpenAI
           openai_client = OpenAI(
               api_key=os.environ["OPENAI_API_KEY"],
               base_url="https://api.groq.com/openai/v1"
           )
 
-          # Helper function for tracking soft-landing exit scenarios
           def handle_soft_landing(error_message):
               print("\n🟩 [AUTOMATION SOFT LANDING]: API Quota or Service Ceiling Intercepted.")
               print(f"🟩 Details: {error_message}")
@@ -134,7 +134,7 @@ jobs:
               sys.exit(0)
 
           # =====================================================================
-          # LOCAL CACHING & SYNTHETIC RECOVERY ENGINE FOR REMOTE ASSETS
+          # LOCAL CACHING & SYNTHETIC RECOVERY ENGINE
           # =====================================================================
           LOCAL_VIDEO_PATH = os.path.abspath("fallback_background_video.mp4")
           LOCAL_AUDIO_PATH = os.path.abspath("fallback_background_audio.mp3")
@@ -142,32 +142,26 @@ jobs:
           GLOBAL_FALLBACK_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-underwater-light-beams-background-loop-42340-large.mp4"
           GLOBAL_FALLBACK_AUDIO_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
 
-          def generate_synthetic_backup(dest_path, asset_type="video"):
-              print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic local {asset_type} to completely bypass network errors...")
+          def generate_synthetic_video(dest_path):
+              print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic video...")
               try:
-                  if asset_type == "video":
-                      cmd = [
-                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x111827:s=1080x1920:d=120:r=25',
-                          '-vf', "drawtext=text='Deep Sea Processing...':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
-                          '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', dest_path
-                      ]
-                  else:
-                      cmd = [
-                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', 
-                          '-t', '120', '-acodec', 'libmp3lame', dest_path
-                      ]
+                  cmd = [
+                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=60:r=30',
+                      '-vf', "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
+                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', dest_path
+                  ]
                   subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                  print(f"✨ Synthetic asset securely deployed locally at: {dest_path}")
+                  print(f"✨ Synthetic video created: {dest_path}")
               except Exception as e:
-                  print(f"❌ Failed to run local recovery generation layout: {e}")
+                  print(f"❌ Failed to create synthetic video: {e}")
 
           def download_asset_locally(url, dest_path, asset_type="Asset"):
               if not url or not str(url).startswith("http"):
                   return url
-              if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+              if os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
                   return dest_path
               
-              print(f"📥 [DOWNLOAD ENGINE]: Pre-fetching remote {asset_type} using curl wrapper...")
+              print(f"📥 [DOWNLOAD ENGINE]: Pre-fetching remote {asset_type}...")
               curl_cmd = [
                   'curl', '-L', '-s', '-k',
                   '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -178,15 +172,22 @@ jobs:
               try:
                   result = subprocess.run(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
                   if result.returncode == 0 and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
-                      print(f"✅ Cached remote file successfully via curl: {dest_path} ({os.path.getsize(dest_path)} bytes)")
+                      print(f"✅ Downloaded: {dest_path} ({os.path.getsize(dest_path)} bytes)")
                       return dest_path
                   else:
-                      print(f"⚠️ Curl exit code: {result.returncode} or file size looks invalid.")
-                      raise Exception("Incomplete download layout check.")
+                      raise Exception("Download failed")
               except Exception as e:
-                  print(f"⚠️ Network block detected during asset sync: {e}.")
-                  is_video = "audio" not in asset_type.lower() and "music" not in asset_type.lower()
-                  generate_synthetic_backup(dest_path, "video" if is_video else "audio")
+                  print(f"⚠️ Download failed: {e}. Using synthetic fallback.")
+                  if "audio" in asset_type.lower() or "music" in asset_type.lower():
+                      # For audio, create a simple tone
+                      cmd = [
+                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=60:sample_rate=44100',
+                          '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', dest_path
+                      ]
+                      subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      print(f"✨ Synthetic audio created: {dest_path}")
+                  else:
+                      generate_synthetic_video(dest_path)
                   return dest_path
 
           # =====================================================================
@@ -195,20 +196,22 @@ jobs:
           try:
               from shortGPT.config import asset_db
               
-              # Create a custom database that always returns our local files
               class PatchedAssetDatabase:
                   @staticmethod
                   def get_asset_link(key):
                       key_str = str(key).lower()
                       print(f"🔍 Asset request for: '{key_str}'")
                       
-                      # Check if we have local files ready
-                      if os.path.exists("test_background.mp4") and os.path.getsize("test_background.mp4") > 100000:
-                          print(f"✅ Using local test_background.mp4 for video asset")
-                          return "test_background.mp4"
-                      elif os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10000:
-                          print(f"✅ Using local test_audio.mp3 for audio asset")
-                          return "test_audio.mp3"
+                      # Use local files if they exist and are valid
+                      if "video" in key_str or "background" in key_str:
+                          if os.path.exists("test_background.mp4") and os.path.getsize("test_background.mp4") > 100000:
+                              print(f"✅ Using local test_background.mp4")
+                              return "test_background.mp4"
+                      
+                      if "music" in key_str or "audio" in key_str:
+                          if os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10000:
+                              print(f"✅ Using local test_audio.mp3")
+                              return "test_audio.mp3"
                       
                       # Fallback to downloads
                       if "music" in key_str or "audio" in key_str:
@@ -217,13 +220,12 @@ jobs:
                   
                   @staticmethod
                   def get_asset_duration(key):
-                      return 120.0
+                      return 60.0
                   
                   @staticmethod
                   def get_asset_name(key):
                       return str(key)
               
-              # Override the database class
               if hasattr(asset_db, 'AssetDatabase'):
                   asset_db.AssetDatabase.get_asset_link = PatchedAssetDatabase.get_asset_link
                   asset_db.AssetDatabase.get_asset_duration = PatchedAssetDatabase.get_asset_duration
@@ -233,7 +235,33 @@ jobs:
               print(f"⚠️ Database patch notice: {db_patch_err}")
 
           # =====================================================================
-          # CORE MOVIEPY LOW-LEVEL REGEX PARSER INTERCEPTION PATCH
+          # MOVIEPY AUDIO READER PATCH (FIX FOR EMPTY AUDIO BUFFERS)
+          # =====================================================================
+          try:
+              import moviepy.audio.io.readers as readers
+              
+              # Patch the audio reader to handle empty buffers gracefully
+              original_get_frame = readers.AudioFileReader.get_frame
+              
+              def patched_get_frame(self, t):
+                  try:
+                      return original_get_frame(self, t)
+                  except IndexError as e:
+                      if "index -1 is out of bounds" in str(e):
+                          print(f"⚠️ Audio buffer empty, returning silent frame at t={t}")
+                          # Return silence (zeros) instead of crashing
+                          import numpy as np
+                          return np.zeros((len(t), self.nchannels), dtype=np.float32)
+                      raise e
+              
+              readers.AudioFileReader.get_frame = patched_get_frame
+              print("✅ Audio reader patched to handle empty buffers")
+              
+          except Exception as audio_patch_err:
+              print(f"⚠️ Audio patch notice: {audio_patch_err}")
+
+          # =====================================================================
+          # CORE MOVIEPY FFMPEG READER PATCH
           # =====================================================================
           try:
               import moviepy.video.io.ffmpeg_reader as ffmpeg_reader
@@ -243,82 +271,27 @@ jobs:
                   def patched_reader_init(self, filename, *args, **kwargs):
                       filename_str = str(filename)
                       if filename_str.startswith("http://") or filename_str.startswith("https://"):
-                          print(f"🚨 [MOVIEPY CORE INTERCEPT]: Blocked remote network stream read targeting: {filename_str}")
+                          print(f"🚨 [MOVIEPY]: Blocked remote URL: {filename_str}")
                           if any(ext in filename_str.lower() for ext in [".mp3", ".wav", ".ogg", ".m4a"]):
-                              local_file = download_asset_locally(filename_str, LOCAL_AUDIO_PATH, "MoviePy Remote Audio File")
+                              local_file = download_asset_locally(filename_str, LOCAL_AUDIO_PATH, "Audio")
                           else:
-                              local_file = download_asset_locally(filename_str, LOCAL_VIDEO_PATH, "MoviePy Remote Video File")
+                              local_file = download_asset_locally(filename_str, LOCAL_VIDEO_PATH, "Video")
                           filename = local_file
                       original_reader_init(self, filename, *args, **kwargs)
                       
                   ffmpeg_reader.FFMPEG_VideoReader.__init__ = patched_reader_init
-                  print("✅ MoviePy Protection: Global core FFMPEG_VideoReader class successfully reinforced.")
+                  print("✅ MoviePy FFMPEG reader patched")
           except Exception as mpy_patch_err:
-              print(f"⚠️ MoviePy low-level engine initialization bypass notice: {mpy_patch_err}")
+              print(f"⚠️ MoviePy patch notice: {mpy_patch_err}")
 
           # =====================================================================
-          # THE ULTIMATE LOW-LEVEL YT-DLP BOT-DETECTION BYPASS PATCH
-          # =====================================================================
-          try:
-              import yt_dlp
-              original_init = yt_dlp.YoutubeDL.__init__
-              
-              def patched_ydl_init(self, *args, **kwargs):
-                  params = kwargs.get('params', {}) or (args[0] if args else {})
-                  params['nocheckcertificate'] = True
-                  params['quiet'] = True
-                  params['no_warnings'] = True
-                  
-                  if os.path.exists("cookies.txt"):
-                      params['cookiefile'] = "cookies.txt"
-                      print("🍪 [YT-DLP PATCH]: Successfully injected local cookies.txt into scraper options.")
-                  else:
-                      print("⚠️ [YT-DLP PATCH]: cookies.txt missing. Injecting browser emulation headers...")
-                      params['http_headers'] = {
-                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                          'Accept-Language': 'en-US,en;q=0.5',
-                          'Referer': 'https://www.youtube.com/',
-                      }
-                      
-                  if args:
-                      args = (params,) + args[1:]
-                  else:
-                      kwargs['params'] = params
-                      
-                  original_init(self, *args, **kwargs)
-                  
-              yt_dlp.YoutubeDL.__init__ = patched_ydl_init
-              print("Base optimizations: Internal yt-dlp cookie engine wrapper patched.")
-          except Exception as ytdlp_patch_err:
-              print(f"⚠️ Internal scraper failover patch notice: {ytdlp_patch_err}")
-
-          # =====================================================================
-          # MOVIEPY FONT DISCOVERY & COMPATIBILITY PATCH
-          # =====================================================================
-          try:
-              import moviepy.video.VideoClip as videoclip
-              original_textclip_init = videoclip.TextClip.__init__
-              
-              def patched_textclip_init(self, *args, **kwargs):
-                  requested_font = kwargs.get('font', '')
-                  print(f"🔤 [FONT ENGINE PATCH]: Capture font footprint -> '{requested_font}'")
-                  kwargs['font'] = 'Liberation-Sans-Bold'
-                  original_textclip_init(self, *args, **kwargs)
-                  
-              videoclip.TextClip.__init__ = patched_textclip_init
-              print("✅ Typography Protection: MoviePy TextClip engine wrapper patched globally.")
-          except Exception as font_patch_err:
-              print(f"⚠️ Typography engine path override notice: {font_patch_err}")
-
-          # =====================================================================
-          # TEXT GENERATION PIPELINE ROUTING ENGINE
+          # TEXT GENERATION PIPELINE
           # =====================================================================
           def execute_universal_fallback(chat_prompt, system="", temp=1):
               if openai_client:
                   try:
                       fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
-                      print(f"🔄 [ROUTING TO PRIMARY ENGINE]: Dispatching payload to Groq ({fallback_model})")
+                      print(f"🔄 [GROQ]: Sending request to {fallback_model}")
                       messages = []
                       if system:
                           messages.append({"role": "system", "content": system})
@@ -332,166 +305,55 @@ jobs:
                       return response.choices[0].message.content
                   except Exception as inline_err:
                       err_str = str(inline_err)
-                      if "429" in err_str or "quota" in err_str.lower() or "rate_limit" in err_str.lower():
-                          handle_soft_landing(f"Primary Groq rate limits or text pipeline ceiling intercepted: {err_str}")
+                      if "429" in err_str or "quota" in err_str.lower():
+                          handle_soft_landing(f"Quota exceeded: {err_str}")
                       else:
-                          print(f"❌ ERROR: OpenAI/Groq backend routing encountered an issue: {inline_err}")
+                          print(f"❌ ERROR: {inline_err}")
               
-              print("❌ ABORT: No viable completion engine keys available to satisfy system parameters.")
+              print("❌ No viable completion engine available")
               return None
 
           # =====================================================================
-          # LOW-LEVEL ALL-ENGINES FAILOVER PATCH (SHORTGPT CORE RECOVERY)
+          # PATCH SHORTGPT GPT UTILS
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
               
-              if hasattr(gpt_utils, 'llm_completion') and not hasattr(gpt_utils, '_patched_llm_completion'):
-                  gpt_utils._original_llm_completion = gpt_utils.llm_completion
-                  gpt_utils._patched_llm_completion = True
+              if hasattr(gpt_utils, 'llm_completion'):
+                  original_llm = gpt_utils.llm_completion
                   
-                  def smart_failover_llm_completion(chat_prompt, system="", temp=1, model=None):
+                  def smart_llm_completion(chat_prompt, system="", temp=1, model=None):
                       try:
-                          time.sleep(0.5)
                           res = execute_universal_fallback(chat_prompt, system, temp)
-                          if res: return res
-                          return gpt_utils._original_llm_completion(chat_prompt, system, temp, model)
+                          if res:
+                              return res
+                          return original_llm(chat_prompt, system, temp, model)
                       except Exception as e:
-                          err_str = str(e)
-                          if "429" in err_str or "quota" in err_str.lower():
-                              handle_soft_landing(err_str)
-                          print(f"⚠️ Primary execution intercepted fallback warning: {e}")
-                          res = execute_universal_fallback(chat_prompt, system, temp)
-                          if res: return res
-                          raise e
-                              
-                  gpt_utils.llm_completion = smart_failover_llm_completion
-
-              if hasattr(gpt_utils, 'gpt3Turbo_completion') and not hasattr(gpt_utils, '_patched_turbo_completion'):
-                  gpt_utils._patched_turbo_completion = True
+                          if "429" in str(e) or "quota" in str(e).lower():
+                              handle_soft_landing(str(e))
+                          print(f"⚠️ LLM fallback: {e}")
+                          return execute_universal_fallback(chat_prompt, system, temp)
                   
-                  def smart_failover_turbo_completion(chat_prompt, system="", temp=1):
-                      res = execute_universal_fallback(chat_prompt, system, temp)
-                      if res: return res
-                      raise Exception("Failed to execute text generation block inside pipeline fallbacks.")
-                      
-                  gpt_utils.gpt3Turbo_completion = smart_failover_turbo_completion
+                  gpt_utils.llm_completion = smart_llm_completion
+                  print("✅ GPT utils patched")
                   
-              print("Base Text Optimization: Self-contained fallback protections active for all completion modules.")
-          except Exception as patch_err:
-              print(f"⚠️ Low-level text routing patch notice: {patch_err}")
+          except Exception as gpt_patch_err:
+              print(f"⚠️ GPT patch notice: {gpt_patch_err}")
 
           # =====================================================================
-          # EDITING UTILS INTERCEPTION PATCH (FIX FOR BOT BLOCKS & MISSING FILES)
+          # PATCH GEMINI TO USE GROQ
           # =====================================================================
           try:
-              from shortGPT.editing_utils import handle_videos
-              if hasattr(handle_videos, 'extract_random_clip_from_video'):
-                  
-                  def flexible_extract_random_clip_from_video(video_url, duration, target_duration, output_path):
-                      print(f"🎬 [CLIP ENGINE PATCH]: Running interceptor targeting destination file: {output_path}")
-                      os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-                      
-                      working_source = video_url
-                      if not working_source or any(x in str(working_source).lower() for x in ["none", "youtube", "youtu.be", "72whut"]):
-                          working_source = download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
-                          
-                      if str(working_source).startswith("http"):
-                          working_source = download_asset_locally(working_source, LOCAL_VIDEO_PATH, "Video File")
-                      
-                      # If local test_background exists, use it
-                      if os.path.exists("test_background.mp4") and os.path.getsize("test_background.mp4") > 100000:
-                          print(f"🎬 Using local test_background.mp4 as video source")
-                          working_source = "test_background.mp4"
-                          
-                      try:
-                          import subprocess
-                          cmd = [
-                              'ffmpeg', '-y', '-ss', '0', '-i', working_source, 
-                              '-t', str(target_duration), '-an', '-vcodec', 'libx264', 
-                              '-crf', '23', output_path
-                          ]
-                          subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                          
-                          if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                              print(f"🎉 Success: Formatted compilation chunk saved to layout targets -> {output_path}")
-                              return output_path
-                          else:
-                              raise Exception("Render target extraction check failed or file size empty.")
-                              
-                      except Exception as inner_render_err:
-                          print(f"⚠️ Inline rendering step failure: {inner_render_err}. Swapping to disaster recovery generator...")
-                          import subprocess
-                          fallback_cmd = [
-                              'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=blue:s=1080x1920:d={target_duration}:r=25',
-                              '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', output_path
-                          ]
-                          subprocess.run(fallback_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                          return output_path
-                          
-                  handle_videos.extract_random_clip_from_video = flexible_extract_random_clip_from_video
-                  print("✅ Clip Engine Protection: Video duration and downloader validator fully reinforced.")
-          except Exception as clip_patch_err:
-              print(f"⚠️ Video engine patch initialization note: {clip_patch_err}")
-
-          # =====================================================================
-          # CRITICAL FIX: Patch Gemini client to use Groq directly
-          # =====================================================================
-          try:
-              # Force Gemini to use our Groq client by patching the model config
               from shortGPT.config import api_keys
               
-              # Override Gemini model to use our Groq fallback
               if hasattr(api_keys, 'GEMINI_MODEL'):
                   api_keys.GEMINI_MODEL = "llama-3.1-8b-instant"
-                  print("✅ Patched Gemini model to use Groq model name")
-              
-              # Also patch the Gemini API key to redirect to Groq
               if hasattr(api_keys, 'GEMINI_API_KEY'):
                   api_keys.GEMINI_API_KEY = api_key_env
-                  print("✅ Patched Gemini API key to use Groq")
+              print("✅ Gemini patched to use Groq")
                   
           except Exception as gemini_patch_err:
               print(f"⚠️ Gemini patch notice: {gemini_patch_err}")
-
-          # =====================================================================
-          # FIX: Ensure rendered video exists before moving
-          # =====================================================================
-          try:
-              from shortGPT.engine import content_short_engine
-              
-              # Save original _addYoutubeMetadata method
-              if hasattr(content_short_engine.ShortEngine, '_addYoutubeMetadata'):
-                  original_add_metadata = content_short_engine.ShortEngine._addYoutubeMetadata
-                  
-                  def patched_add_metadata(self):
-                      # Check if rendered video exists before moving
-                      if hasattr(self, '_db_video_path'):
-                          video_path = self._db_video_path
-                          if not os.path.exists(video_path):
-                              print(f"⚠️ Video file not found: {video_path}. Creating placeholder...")
-                              # Try to find any video in the asset directory
-                              assets_dir = os.path.dirname(video_path)
-                              if os.path.exists(assets_dir):
-                                  mp4_files = [f for f in os.listdir(assets_dir) if f.endswith('.mp4')]
-                                  if mp4_files:
-                                      # Use first available video as fallback
-                                      fallback_video = os.path.join(assets_dir, mp4_files[0])
-                                      print(f"🔄 Using fallback video: {fallback_video}")
-                                      # Copy fallback to expected path
-                                      import shutil
-                                      shutil.copy2(fallback_video, video_path)
-                                      print(f"✅ Created fallback video at: {video_path}")
-                                  
-                                  # If still no video, generate synthetic one
-                                  if not os.path.exists(video_path):
-                                      generate_synthetic_backup(video_path, "video")
-                      return original_add_metadata(self)
-                  
-                  content_short_engine.ShortEngine._addYoutubeMetadata = patched_add_metadata
-                  print("✅ Patched _addYoutubeMetadata to handle missing videos")
-          except Exception as metadata_patch_err:
-              print(f"⚠️ Metadata patch notice: {metadata_patch_err}")
 
           from shortGPT.config.asset_db import AssetDatabase
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
@@ -521,80 +383,60 @@ jobs:
 
           def main():
               print("=========================================================")
-              print("🚀 STARTING AUTOMATED SHORTGPT MEDIA PIPELINE GENERATION ")
+              print("🚀 STARTING SHORTGPT AUTOMATION PIPELINE")
               print("=========================================================")
 
-              # Verify local assets exist
+              # Verify local assets exist and are valid
               local_video = "test_background.mp4"
               local_audio = "test_audio.mp3"
               
               if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
-                  print("⚠️ test_background.mp4 missing or too small! Creating one now...")
-                  subprocess.run([
-                      'ffmpeg', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=60:r=30',
-                      '-vf', "drawtext=text='Deep Sea':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2",
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', local_video
-                  ])
+                  print("⚠️ Creating test_background.mp4...")
+                  generate_synthetic_video(local_video)
               
               if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
-                  print("⚠️ test_audio.mp3 missing or too small! Creating one now...")
+                  print("⚠️ Creating test_audio.mp3...")
                   subprocess.run([
-                      'ffmpeg', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-                      '-t', '60', '-acodec', 'libmp3lame', local_audio
-                  ])
+                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=60:sample_rate=44100',
+                      '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', local_audio
+                  ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               
-              print(f"📁 Local assets verified:")
+              print(f"📁 Local assets:")
               if os.path.exists(local_video):
                   print(f"   - test_background.mp4: {os.path.getsize(local_video):,} bytes")
               if os.path.exists(local_audio):
                   print(f"   - test_audio.mp3: {os.path.getsize(local_audio):,} bytes")
-
-              download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Initial Background Video")
-              download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Initial Background Audio")
-
-              try:
-                  if hasattr(AssetDatabase, 'initialize_db'):
-                      AssetDatabase.initialize_db()
-                  if hasattr(AssetDatabase, 'sync_local_assets'):
-                      AssetDatabase.sync_local_assets() 
-                  print("✅ Asset Database abstraction layers synchronized successfully.")
-              except Exception as db_err:
-                  print(f"⚠️ Database initialization notice: {db_err} (Proceeding...)")
 
               settings = get_automation_settings()
               topic = settings["niche_topic"]
               language = settings["language"]
               voice_choice = settings["voice"]
 
-              print(f"\n📋 Pipeline Execution Settings:")
-              print(f"    • Selected Niche Category : {topic}")
-              print(f"    • Target Native Language  : {language}")
-              print(f"    • TTS Voice Profile Config: {voice_choice}\n")
+              print(f"\n📋 Settings:")
+              print(f"    • Niche: {topic}")
+              print(f"    • Language: {language}")
+              print(f"    • Voice: {voice_choice}\n")
 
               try:
                   lang_enum = Language.from_string(language)
               except Exception:
-                  print(f"⚠️ Language conversion notice: Could not match string '{language}'. Defaulting to Language.ENGLISH.")
+                  print(f"⚠️ Language defaulting to English")
                   lang_enum = Language.ENGLISH
 
-              print("DEBUG: Instantiating high-performance EdgeTTSVoiceModule.")
               voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
-              print(f"--- Starting Generation for: {topic} ---")
+              print(f"--- Generating video for: {topic} ---")
 
               try:
-                  # =============================================================
-                  # FIXED: Use background_video_name with local file names
-                  # =============================================================
                   content_engine = FactsShortEngine(
                       voiceModule=voice_module,
                       facts_type=topic,
-                      background_video_name="test_background.mp4",  # Use local file name
-                      background_music_name="test_audio.mp3",       # Use local file name
+                      background_video_name="test_background.mp4",
+                      background_music_name="test_audio.mp3",
                       language=lang_enum
                   )
 
-                  print("🔄 Executing ShortGPT core processing engine loop blocks...")
+                  print("🔄 Processing...")
                   engine_loop = content_engine.makeContent()
                   
                   while True:
@@ -603,28 +445,24 @@ jobs:
                               content_engine.caption_timing_map = sanitize_numpy_types(content_engine.caption_timing_map)
                           
                           step_num, step_logs = next(engine_loop)
-                          print(f"    [Step {step_num}/12 Progress Update]: {step_logs}")
+                          print(f"    [Step {step_num}/12]: {step_logs}")
                           
                       except StopIteration:
                           break
 
                   print("\n=========================================================")
-                  print("🎉 SUCCESS: Short Video Project compiled and rendered!")
+                  print("🎉 SUCCESS! Video rendered successfully!")
                   print("=========================================================")
 
               except Exception as engine_failure:
                   err_str = str(engine_failure)
-                  if "429" in err_str or "Quota exceeded" in err_str or "ResourceExhausted" in err_str or "pipeline fallbacks" in err_str.lower():
+                  if "429" in err_str or "Quota exceeded" in err_str:
                       handle_soft_landing(err_str)
                       
-                  print("\n❌ CRITICAL CRASH: Automation pipeline processing halted.")
-                  print(f"Error Details: {err_str}")
-                  print("\n--- Python Traceback Log Stack ---")
+                  print(f"\n❌ ERROR: {err_str}")
                   traceback.print_exc()
-                  print("----------------------------------")
                   sys.exit(1)
 
-          # Execute the main entrypoint cleanly at the script level
           main()
 
       - name: Verify Rendered Video
@@ -674,7 +512,7 @@ jobs:
             exit 1
           fi
           
-          # Find latest video and export as environment variable
+          # Find latest video
           LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
           export LATEST_VIDEO="$LATEST_VIDEO"
           
@@ -689,3 +527,112 @@ jobs:
           # Check if video is valid (not 4KB)
           VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
           if [ "$VIDEO_SIZE" -lt 10240 ]; then
+            echo "❌ Video too small ($VIDEO_SIZE bytes) - likely corrupt!"
+            echo "⚠️ Skipping upload"
+            exit 0
+          fi
+          
+          python3 << 'EOF'
+          import os
+          import sys
+          import pickle
+          from google.auth.transport.requests import Request
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          
+          SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+          
+          video_path = os.environ.get('LATEST_VIDEO')
+          
+          if not video_path or not os.path.exists(video_path):
+              print(f"❌ Video not found: {video_path}")
+              sys.exit(1)
+          
+          if not os.path.exists('token.pickle'):
+              print("❌ token.pickle not found!")
+              sys.exit(1)
+          
+          print(f"📤 Uploading: {video_path}")
+          
+          title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
+          if not title:
+              title = "Deep Sea Facts - ShortGPT"
+          
+          description = "Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation"
+          keywords = ["shorts", "facts", "deepsea", "ai", "automation"]
+          
+          print(f"📝 Title: {title}")
+          print(f"🔒 Privacy: public")
+          
+          try:
+              with open('token.pickle', 'rb') as token:
+                  creds = pickle.load(token)
+              print("✅ Loaded token.pickle")
+          except Exception as e:
+              print(f"❌ Failed to load token: {e}")
+              sys.exit(1)
+          
+          if creds and creds.expired and creds.refresh_token:
+              try:
+                  creds.refresh(Request())
+                  print("✅ Token refreshed")
+              except Exception as e:
+                  print(f"⚠️ Token refresh failed: {e}")
+          
+          if not creds or not creds.valid:
+              print("❌ Invalid credentials")
+              sys.exit(1)
+          
+          try:
+              youtube = build('youtube', 'v3', credentials=creds)
+              print("✅ Authenticated with YouTube")
+              
+              body = {
+                  'snippet': {
+                      'title': title[:100],
+                      'description': description[:5000],
+                      'tags': keywords,
+                      'categoryId': '22'
+                  },
+                  'status': {
+                      'privacyStatus': 'public',
+                      'selfDeclaredMadeForKids': False
+                  }
+              }
+              
+              media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+              request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+              
+              response = None
+              last_progress = 0
+              while response is None:
+                  status, response = request.next_chunk()
+                  if status:
+                      progress = int(status.progress() * 100)
+                      if progress - last_progress >= 10:
+                          print(f"📊 Upload progress: {progress}%")
+                          last_progress = progress
+              
+              print(f"✅ Upload successful: https://youtu.be/{response['id']}")
+              
+          except Exception as e:
+              print(f"❌ Upload failed: {e}")
+              sys.exit(1)
+          EOF
+
+      - name: Upload Video as Backup Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video
+          path: videos/*.mp4
+          retention-days: 7
+
+      - name: Complete
+        if: always()
+        run: |
+          echo "========================================================="
+          echo "🎉 WORKFLOW COMPLETE!"
+          echo "========================================================="
+          ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

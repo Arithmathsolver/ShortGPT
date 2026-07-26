@@ -38,7 +38,6 @@ jobs:
           pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
           
           # CRITICAL FIX: Downgrade openai to 0.28.0 for ShortGPT compatibility
-          # ShortGPT uses old API (openai.ChatCompletion) which was removed in v1.0.0
           pip install --no-cache-dir "protobuf>=3.20.1,<5.0.0dev" "Pillow<10.0.0" "moviepy<2.0.0" "openai==0.28.0" "numpy<2.0.0"
           
           # Install core video pipeline components
@@ -112,22 +111,60 @@ jobs:
               sys.path.insert(0, str(_here))
 
           # =====================================================================
-          # CRITICAL: Set up OpenAI v0.28 compatibility for ShortGPT
+          # CRITICAL: Monkey patch OpenAI v0.28 to work with Groq
           # =====================================================================
           import openai
           
-          # Configure the old-style OpenAI client (v0.28) for ShortGPT
+          # Set the API key and base URL for the old-style client
           openai.api_key = api_key_env
           openai.api_base = "https://api.groq.com/openai/v1"
           
-          # Also set environment variable for compatibility
-          os.environ["OPENAI_API_BASE"] = "https://api.groq.com/openai/v1"
-          
-          print("✅ OpenAI v0.28 compatibility configured for ShortGPT")
+          # Also need to patch the requestor to use the correct headers
+          try:
+              from openai import util
+              original_requestor = openai.api_requestor.APIRequestor
+              
+              class PatchedRequestor(original_requestor):
+                  def __init__(self, *args, **kwargs):
+                      super().__init__(*args, **kwargs)
+                      # Override the API base URL
+                      self.api_base = "https://api.groq.com/openai/v1"
+                  
+                  def request(self, *args, **kwargs):
+                      # Add Groq-specific headers
+                      if 'headers' not in kwargs:
+                          kwargs['headers'] = {}
+                      kwargs['headers']['Authorization'] = f'Bearer {api_key_env}'
+                      # Remove any OpenAI-specific headers that might cause issues
+                      return super().request(*args, **kwargs)
+              
+              openai.api_requestor.APIRequestor = PatchedRequestor
+              print("✅ OpenAI requestor patched for Groq compatibility")
+          except Exception as e:
+              print(f"⚠️ Requestor patch failed: {e}")
+
+          # Also ensure the ChatCompletion module uses our patched client
+          try:
+              from openai.api_resources import ChatCompletion
+              # Store the original create method
+              original_create = ChatCompletion.create
+              
+              def patched_create(*args, **kwargs):
+                  # Ensure we're using the correct API base
+                  kwargs['api_base'] = "https://api.groq.com/openai/v1"
+                  return original_create(*args, **kwargs)
+              
+              ChatCompletion.create = patched_create
+              print("✅ ChatCompletion patched for Groq")
+          except Exception as e:
+              print(f"⚠️ ChatCompletion patch failed: {e}")
+
+          print("✅ OpenAI v0.28 configured for Groq endpoint")
 
           # =====================================================================
           # Also set up modern client for our custom fallback
           # =====================================================================
+          modern_client = None
           try:
               from openai import OpenAI as ModernOpenAI
               modern_client = ModernOpenAI(
@@ -136,8 +173,7 @@ jobs:
               )
               print("✅ Modern OpenAI client configured for fallback")
           except ImportError:
-              print("⚠️ Modern OpenAI client not available - using fallback only")
-              modern_client = None
+              print("⚠️ Modern OpenAI client not available")
 
           def handle_soft_landing(error_message):
               print("\n🟩 [AUTOMATION SOFT LANDING]: API Quota or Service Ceiling Intercepted.")
@@ -250,22 +286,26 @@ jobs:
           # =====================================================================
           try:
               import moviepy.audio.io.readers as readers
+              import numpy as np
               
-              original_get_frame = readers.AudioFileReader.get_frame
-              
-              def patched_get_frame(self, t):
-                  try:
-                      return original_get_frame(self, t)
-                  except IndexError as e:
-                      if "index -1 is out of bounds" in str(e):
-                          print(f"⚠️ Audio buffer empty, returning silent frame at t={t}")
-                          import numpy as np
-                          return np.zeros((len(t), self.nchannels), dtype=np.float32)
+              # Different versions of moviepy have different class names
+              if hasattr(readers, 'AudioFileReader'):
+                  original_get_frame = readers.AudioFileReader.get_frame
+                  
+                  def patched_get_frame(self, t):
+                      try:
+                          return original_get_frame(self, t)
+                      except IndexError as e:
+                          if "index -1 is out of bounds" in str(e):
+                              print(f"⚠️ Audio buffer empty, returning silent frame")
+                              return np.zeros((len(t), self.nchannels), dtype=np.float32)
                       raise e
-              
-              readers.AudioFileReader.get_frame = patched_get_frame
-              print("✅ Audio reader patched to handle empty buffers")
-              
+                  
+                  readers.AudioFileReader.get_frame = patched_get_frame
+                  print("✅ Audio reader patched")
+              else:
+                  print("⚠️ AudioFileReader not found, skipping patch")
+                  
           except Exception as audio_patch_err:
               print(f"⚠️ Audio patch notice: {audio_patch_err}")
 
@@ -323,57 +363,56 @@ jobs:
               return None
 
           # =====================================================================
-          # PATCH SHORTGPT GPT UTILS TO USE OUR CONFIGURED OPENAI
+          # PATCH SHORTGPT GPT UTILS
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
               
-              # The patched openai with api_base will work for ShortGPT
-              # We just need to ensure the module sees our configuration
-              if hasattr(gpt_utils, 'openai'):
-                  gpt_utils.openai.api_key = api_key_env
-                  gpt_utils.openai.api_base = "https://api.groq.com/openai/v1"
-                  print("✅ GPT utils OpenAI configuration updated")
+              # Override the completion function entirely
+              def groq_completion(prompt, system="", temp=1, model=None):
+                  """Use Groq via the modern client"""
+                  try:
+                      messages = []
+                      if system:
+                          messages.append({"role": "system", "content": system})
+                      messages.append({"role": "user", "content": prompt})
+                      
+                      # Use the modern client if available
+                      if modern_client:
+                          response = modern_client.chat.completions.create(
+                              model=os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"),
+                              messages=messages,
+                              temperature=float(temp)
+                          )
+                          return response.choices[0].message.content
+                      else:
+                          # Fallback to old-style client with Groq
+                          response = openai.ChatCompletion.create(
+                              model=os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"),
+                              messages=messages,
+                              temperature=float(temp)
+                          )
+                          return response.choices[0].message.content
+                  except Exception as e:
+                      if "429" in str(e) or "quota" in str(e).lower():
+                          handle_soft_landing(str(e))
+                      raise e
               
-              # Also patch the llm_completion to use our fallback if needed
+              # Replace the llm_completion function
               if hasattr(gpt_utils, 'llm_completion'):
-                  original_llm = gpt_utils.llm_completion
-                  
-                  def smart_llm_completion(chat_prompt, system="", temp=1, model=None):
-                      try:
-                          # Try the original (now pointing to Groq via api_base)
-                          return original_llm(chat_prompt, system, temp, model)
-                      except Exception as e:
-                          if "429" in str(e) or "quota" in str(e).lower():
-                              handle_soft_landing(str(e))
-                          print(f"⚠️ LLM primary failed: {e}")
-                          # Fallback to our modern client
-                          fallback_result = execute_universal_fallback(chat_prompt, system, temp)
-                          if fallback_result:
-                              return fallback_result
-                          raise e
-                  
-                  gpt_utils.llm_completion = smart_llm_completion
-                  print("✅ GPT utils patched with fallback")
+                  gpt_utils.llm_completion = groq_completion
+                  print("✅ GPT utils llm_completion replaced with Groq")
+              
+              if hasattr(gpt_utils, 'gpt3Turbo_completion'):
+                  gpt_utils.gpt3Turbo_completion = groq_completion
+                  print("✅ GPT utils gpt3Turbo_completion replaced with Groq")
                   
           except Exception as gpt_patch_err:
               print(f"⚠️ GPT patch notice: {gpt_patch_err}")
 
           # =====================================================================
-          # PATCH GEMINI TO USE GROQ
+          # IMPORT SHORTGPT MODULES
           # =====================================================================
-          try:
-              from shortGPT.config import api_keys
-              
-              if hasattr(api_keys, 'GEMINI_MODEL'):
-                  api_keys.GEMINI_MODEL = "llama-3.1-8b-instant"
-              if hasattr(api_keys, 'GEMINI_API_KEY'):
-                  api_keys.GEMINI_API_KEY = api_key_env
-              print("✅ Gemini patched to use Groq")
-                  
-          except Exception as gemini_patch_err:
-              print(f"⚠️ Gemini patch notice: {gemini_patch_err}")
-
           from shortGPT.config.asset_db import AssetDatabase
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
           from shortGPT.engine.facts_short_engine import FactsShortEngine

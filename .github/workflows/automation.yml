@@ -363,24 +363,56 @@ jobs:
               return None
 
           # =====================================================================
-          # PATCH SHORTGPT GPT UTILS
+          # PATCH SHORTGPT GPT UTILS - FIXED PARAMETER MAPPING
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
               
-              # Override the completion function entirely
-              def groq_completion(prompt, system="", temp=1, model=None):
-                  """Use Groq via the modern client"""
+              # Store original functions for reference
+              original_llm = None
+              original_turbo = None
+              
+              if hasattr(gpt_utils, 'llm_completion'):
+                  original_llm = gpt_utils.llm_completion
+              
+              if hasattr(gpt_utils, 'gpt3Turbo_completion'):
+                  original_turbo = gpt_utils.gpt3Turbo_completion
+              
+              # Define new completion function that handles both parameter styles
+              def groq_completion(*args, **kwargs):
+                  """Handle both chat_prompt and prompt parameter styles"""
+                  # Extract the prompt - handle both 'chat_prompt' and 'prompt'
+                  chat_prompt = kwargs.get('chat_prompt') or kwargs.get('prompt')
+                  
+                  # If no prompt in kwargs, check positional args
+                  if chat_prompt is None and len(args) > 0:
+                      chat_prompt = args[0]
+                  
+                  # Extract system message
+                  system = kwargs.get('system', '')
+                  if system is None:
+                      system = ''
+                  
+                  # Extract temperature
+                  temp = kwargs.get('temp', kwargs.get('temperature', 1.0))
+                  if temp is None:
+                      temp = 1.0
+                  
+                  # Extract model
+                  model = kwargs.get('model', os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"))
+                  
+                  print(f"🤖 Groq completion called with prompt: {chat_prompt[:50]}...")
+                  
                   try:
                       messages = []
                       if system:
                           messages.append({"role": "system", "content": system})
-                      messages.append({"role": "user", "content": prompt})
+                      messages.append({"role": "user", "content": chat_prompt})
                       
                       # Use the modern client if available
                       if modern_client:
                           response = modern_client.chat.completions.create(
-                              model=os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"),
+                              model=model,
                               messages=messages,
                               temperature=float(temp)
                           )
@@ -388,7 +420,7 @@ jobs:
                       else:
                           # Fallback to old-style client with Groq
                           response = openai.ChatCompletion.create(
-                              model=os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"),
+                              model=model,
                               messages=messages,
                               temperature=float(temp)
                           )
@@ -396,9 +428,10 @@ jobs:
                   except Exception as e:
                       if "429" in str(e) or "quota" in str(e).lower():
                           handle_soft_landing(str(e))
+                      print(f"❌ Groq completion error: {e}")
                       raise e
               
-              # Replace the llm_completion function
+              # Replace both functions with our unified version
               if hasattr(gpt_utils, 'llm_completion'):
                   gpt_utils.llm_completion = groq_completion
                   print("✅ GPT utils llm_completion replaced with Groq")

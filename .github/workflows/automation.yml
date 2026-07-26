@@ -62,9 +62,9 @@ jobs:
                  -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
                  -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
           
-          # Create a simple audio track (fixed aecho syntax - matching delays and decays)
+          # Create a simple audio track (using a clean sine wave with volume adjustment only)
           ffmpeg -f lavfi -i "sine=frequency=432:duration=60:sample_rate=44100" \
-                 -af "volume=0.3,aecho=0.8:0.9:1000|0.6:1000|0.4:1000:0.9|0.9|0.9" \
+                 -af "volume=0.3" \
                  -acodec libmp3lame -b:a 128k test_audio.mp3
           
           echo "✅ Local assets created:"
@@ -687,4 +687,5 @@ jobs:
           echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
           
           # Check if video is valid (not 4KB)
-          VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2
+          VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
+          if [ "$VIDEO_SIZE" -lt 10240 ]; then

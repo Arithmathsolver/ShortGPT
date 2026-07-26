@@ -119,45 +119,30 @@ jobs:
           openai.api_key = api_key_env
           openai.api_base = "https://api.groq.com/openai/v1"
           
-          # Also need to patch the requestor to use the correct headers
+          # Also patch the requestor to use the correct headers
           try:
-              from openai import util
-              original_requestor = openai.api_requestor.APIRequestor
+              from openai.api_requestor import APIRequestor
+              original_request = APIRequestor.request
               
-              class PatchedRequestor(original_requestor):
-                  def __init__(self, *args, **kwargs):
-                      super().__init__(*args, **kwargs)
-                      # Override the API base URL
-                      self.api_base = "https://api.groq.com/openai/v1"
+              def patched_request(self, method, url, headers=None, *args, **kwargs):
+                  # Ensure headers is a dict
+                  if headers is None:
+                      headers = {}
                   
-                  def request(self, *args, **kwargs):
-                      # Add Groq-specific headers
-                      if 'headers' not in kwargs:
-                          kwargs['headers'] = {}
-                      kwargs['headers']['Authorization'] = f'Bearer {api_key_env}'
-                      # Remove any OpenAI-specific headers that might cause issues
-                      return super().request(*args, **kwargs)
+                  # Add Groq-specific headers
+                  headers['Authorization'] = f'Bearer {api_key_env}'
+                  
+                  # Use the Groq API base
+                  if not url.startswith('http'):
+                      url = f"https://api.groq.com/openai/v1{url}"
+                  
+                  # Call the original request method
+                  return original_request(self, method, url, headers, *args, **kwargs)
               
-              openai.api_requestor.APIRequestor = PatchedRequestor
+              APIRequestor.request = patched_request
               print("✅ OpenAI requestor patched for Groq compatibility")
           except Exception as e:
               print(f"⚠️ Requestor patch failed: {e}")
-
-          # Also ensure the ChatCompletion module uses our patched client
-          try:
-              from openai.api_resources import ChatCompletion
-              # Store the original create method
-              original_create = ChatCompletion.create
-              
-              def patched_create(*args, **kwargs):
-                  # Ensure we're using the correct API base
-                  kwargs['api_base'] = "https://api.groq.com/openai/v1"
-                  return original_create(*args, **kwargs)
-              
-              ChatCompletion.create = patched_create
-              print("✅ ChatCompletion patched for Groq")
-          except Exception as e:
-              print(f"⚠️ ChatCompletion patch failed: {e}")
 
           print("✅ OpenAI v0.28 configured for Groq endpoint")
 
@@ -282,13 +267,12 @@ jobs:
               print(f"⚠️ Database patch notice: {db_patch_err}")
 
           # =====================================================================
-          # MOVIEPY AUDIO READER PATCH (FIX FOR EMPTY AUDIO BUFFERS)
+          # MOVIEPY AUDIO READER PATCH
           # =====================================================================
           try:
               import moviepy.audio.io.readers as readers
               import numpy as np
               
-              # Different versions of moviepy have different class names
               if hasattr(readers, 'AudioFileReader'):
                   original_get_frame = readers.AudioFileReader.get_frame
                   
@@ -334,54 +318,14 @@ jobs:
               print(f"⚠️ MoviePy patch notice: {mpy_patch_err}")
 
           # =====================================================================
-          # TEXT GENERATION PIPELINE (FALLBACK FOR MODERN API)
-          # =====================================================================
-          def execute_universal_fallback(chat_prompt, system="", temp=1):
-              if modern_client:
-                  try:
-                      fallback_model = os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant")
-                      print(f"🔄 [GROQ FALLBACK]: Sending request to {fallback_model}")
-                      messages = []
-                      if system:
-                          messages.append({"role": "system", "content": system})
-                      messages.append({"role": "user", "content": chat_prompt})
-                      
-                      response = modern_client.chat.completions.create(
-                          model=fallback_model,
-                          messages=messages,
-                          temperature=float(temp)
-                      )
-                      return response.choices[0].message.content
-                  except Exception as inline_err:
-                      err_str = str(inline_err)
-                      if "429" in err_str or "quota" in err_str.lower():
-                          handle_soft_landing(f"Quota exceeded: {err_str}")
-                      else:
-                          print(f"❌ Fallback error: {inline_err}")
-              
-              print("❌ No viable completion engine available")
-              return None
-
-          # =====================================================================
-          # PATCH SHORTGPT GPT UTILS - FIXED PARAMETER MAPPING
+          # PATCH SHORTGPT GPT UTILS - USE MODERN CLIENT DIRECTLY
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
               
-              # Store original functions for reference
-              original_llm = None
-              original_turbo = None
-              
-              if hasattr(gpt_utils, 'llm_completion'):
-                  original_llm = gpt_utils.llm_completion
-              
-              if hasattr(gpt_utils, 'gpt3Turbo_completion'):
-                  original_turbo = gpt_utils.gpt3Turbo_completion
-              
-              # Define new completion function that handles both parameter styles
               def groq_completion(*args, **kwargs):
                   """Handle both chat_prompt and prompt parameter styles"""
-                  # Extract the prompt - handle both 'chat_prompt' and 'prompt'
+                  # Extract the prompt
                   chat_prompt = kwargs.get('chat_prompt') or kwargs.get('prompt')
                   
                   # If no prompt in kwargs, check positional args
@@ -401,7 +345,7 @@ jobs:
                   # Extract model
                   model = kwargs.get('model', os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"))
                   
-                  print(f"🤖 Groq completion called with prompt: {chat_prompt[:50]}...")
+                  print(f"🤖 Groq completion called with prompt: {str(chat_prompt)[:50]}...")
                   
                   try:
                       messages = []
@@ -409,7 +353,7 @@ jobs:
                           messages.append({"role": "system", "content": system})
                       messages.append({"role": "user", "content": chat_prompt})
                       
-                      # Use the modern client if available
+                      # Try modern client first
                       if modern_client:
                           response = modern_client.chat.completions.create(
                               model=model,
@@ -417,14 +361,29 @@ jobs:
                               temperature=float(temp)
                           )
                           return response.choices[0].message.content
+                      
+                      # Fallback: use requests directly to Groq
+                      import requests
+                      import json
+                      
+                      url = "https://api.groq.com/openai/v1/chat/completions"
+                      headers = {
+                          "Authorization": f"Bearer {api_key_env}",
+                          "Content-Type": "application/json"
+                      }
+                      payload = {
+                          "model": model,
+                          "messages": messages,
+                          "temperature": float(temp)
+                      }
+                      
+                      response = requests.post(url, headers=headers, json=payload, timeout=60)
+                      if response.status_code == 200:
+                          data = response.json()
+                          return data['choices'][0]['message']['content']
                       else:
-                          # Fallback to old-style client with Groq
-                          response = openai.ChatCompletion.create(
-                              model=model,
-                              messages=messages,
-                              temperature=float(temp)
-                          )
-                          return response.choices[0].message.content
+                          raise Exception(f"Groq API error: {response.status_code} - {response.text}")
+                          
                   except Exception as e:
                       if "429" in str(e) or "quota" in str(e).lower():
                           handle_soft_landing(str(e))

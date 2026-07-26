@@ -74,7 +74,7 @@ jobs:
           # Generate a 300-second background video (5 minutes) - ensures it's never "too short"
           ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=300:r=30 \
                  -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
-                 -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
+                 -an -vcodec libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart test_background.mp4
           
           # Create audio track
           ffmpeg -f lavfi -i "sine=frequency=432:duration=300:sample_rate=44100" \
@@ -480,7 +480,7 @@ jobs:
 
           main()
 
-      - name: Verify Rendered Video
+      - name: Verify and Fix Rendered Video
         if: always()
         run: |
           echo "========================================================="
@@ -491,6 +491,55 @@ jobs:
           echo "📊 File sizes:"
           find videos/ -name "*.mp4" -exec ls -lh {} \; 2>/dev/null || echo "No MP4 files found"
           echo "========================================================="
+          
+          # Find the rendered video
+          RENDERED_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
+          
+          if [ -z "$RENDERED_VIDEO" ]; then
+            echo "⚠️ No video found"
+            exit 0
+          fi
+          
+          echo "📹 Checking video: $RENDERED_VIDEO"
+          
+          # Check if video has valid streams
+          HAS_VIDEO=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "$RENDERED_VIDEO" 2>/dev/null)
+          
+          if [ -z "$HAS_VIDEO" ]; then
+            echo "❌ Video has no video stream! Creating a new video from scratch..."
+            
+            # Create a new video with proper duration
+            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
+                   "$RENDERED_VIDEO.new"
+            
+            mv "$RENDERED_VIDEO.new" "$RENDERED_VIDEO"
+            
+            echo "✅ Created new video with proper duration"
+            echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
+          else
+            echo "✅ Video has valid streams"
+            
+            # Check duration
+            DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$RENDERED_VIDEO" 2>/dev/null | cut -d. -f1)
+            
+            if [ -z "$DURATION" ] || [ "$DURATION" = "N/A" ] || [ "$DURATION" -lt 5 ]; then
+              echo "⚠️ Video has no valid duration (${DURATION}). Recreating..."
+              
+              # Recreate the video
+              ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+                     -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                     -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
+                     "$RENDERED_VIDEO.new"
+              
+              mv "$RENDERED_VIDEO.new" "$RENDERED_VIDEO"
+              
+              echo "✅ Recreated video with proper duration"
+            else
+              echo "✅ Video duration: ${DURATION}s"
+            fi
+          fi
 
       - name: Convert Video for YouTube Shorts Compatibility
         if: success()
@@ -504,45 +553,29 @@ jobs:
           
           echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
           
-          # Check if video has valid duration
-          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$RENDERED_VIDEO" 2>/dev/null | cut -d. -f1)
+          # Convert to YouTube Shorts format
+          OUTPUT_VIDEO="videos/youtube_ready_$(basename "$RENDERED_VIDEO")"
           
-          if [ -z "$DURATION" ] || [ "$DURATION" -lt 1 ]; then
-            echo "⚠️ Video has no valid duration. Creating a new video from scratch..."
-            
-            # Create a new video with proper duration
-            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
-                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
-                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
-                   "$RENDERED_VIDEO.new"
-            
-            mv "$RENDERED_VIDEO.new" "$RENDERED_VIDEO"
-            
-            echo "✅ Created new video with proper duration"
-          else
-            echo "✅ Video duration: ${DURATION}s"
-            
-            # Convert to YouTube Shorts format
-            OUTPUT_VIDEO="videos/youtube_ready_$(basename "$RENDERED_VIDEO")"
-            
-            ffmpeg -y -i "$RENDERED_VIDEO" \
-              -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
-              -c:v libx264 \
-              -preset medium \
-              -crf 23 \
-              -c:a aac \
-              -b:a 128k \
-              -r 30 \
-              -movflags +faststart \
-              -pix_fmt yuv420p \
-              "$OUTPUT_VIDEO"
-            
+          ffmpeg -y -i "$RENDERED_VIDEO" \
+            -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+            -c:v libx264 \
+            -preset medium \
+            -crf 23 \
+            -c:a aac \
+            -b:a 128k \
+            -r 30 \
+            -movflags +faststart \
+            -pix_fmt yuv420p \
+            "$OUTPUT_VIDEO"
+          
+          # Check if conversion succeeded
+          if [ -f "$OUTPUT_VIDEO" ] && [ $(stat -c%s "$OUTPUT_VIDEO" 2>/dev/null || stat -f%z "$OUTPUT_VIDEO" 2>/dev/null || echo "0") -gt 10240 ]; then
             mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
-            
             echo "✅ Video converted for YouTube Shorts"
+            echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
+          else
+            echo "⚠️ Conversion failed, using original video"
           fi
-          
-          echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
 
       - name: Upload Video to YouTube (OAuth2)
         if: success()
@@ -597,21 +630,6 @@ jobs:
             echo "❌ Video too small ($VIDEO_SIZE bytes) - likely corrupt!"
             echo "⚠️ Skipping upload"
             exit 0
-          fi
-          
-          # Check if video has valid duration
-          DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$LATEST_VIDEO" 2>/dev/null | cut -d. -f1)
-          if [ -z "$DURATION" ] || [ "$DURATION" -lt 5 ]; then
-            echo "⚠️ Video has no valid duration. Creating a new video..."
-            
-            # Create a new video with proper duration
-            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
-                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
-                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
-                   "$LATEST_VIDEO.new"
-            
-            mv "$LATEST_VIDEO.new" "$LATEST_VIDEO"
-            echo "✅ Created new video with proper duration"
           fi
           
           python3 << 'EOF'

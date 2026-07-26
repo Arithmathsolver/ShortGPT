@@ -57,17 +57,18 @@ jobs:
 
       - name: Create Local Background Assets
         run: |
-          # Generate a 60-second background video with a blue gradient
-          ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
+          # Generate a LONGER 120-second background video (2 minutes) with a blue gradient
+          # This gives enough length for the clip extraction to work
+          ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=120:r=30 \
                  -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
                  -an -vcodec libx264 -pix_fmt yuv420p -crf 23 test_background.mp4
           
-          # Create a proper audio track with actual sound
-          ffmpeg -f lavfi -i "sine=frequency=432:duration=60:sample_rate=44100" \
+          # Create a proper audio track with actual sound (also longer)
+          ffmpeg -f lavfi -i "sine=frequency=432:duration=120:sample_rate=44100" \
                  -af "volume=0.3" \
                  -acodec libmp3lame -b:a 128k test_audio.mp3
           
-          echo "✅ Local assets created:"
+          echo "✅ Local assets created (120 seconds):"
           ls -lh test_background.mp4 test_audio.mp3
 
       - name: Execute Embedded Automation Engine
@@ -111,7 +112,7 @@ jobs:
               sys.path.insert(0, str(_here))
 
           # =====================================================================
-          # CRITICAL: Monkey patch OpenAI v0.28 to work with Groq
+          # CRITICAL: Setup for Groq API
           # =====================================================================
           import openai
           
@@ -119,36 +120,7 @@ jobs:
           openai.api_key = api_key_env
           openai.api_base = "https://api.groq.com/openai/v1"
           
-          # Also patch the requestor to use the correct headers
-          try:
-              from openai.api_requestor import APIRequestor
-              original_request = APIRequestor.request
-              
-              def patched_request(self, method, url, headers=None, *args, **kwargs):
-                  # Ensure headers is a dict
-                  if headers is None:
-                      headers = {}
-                  
-                  # Add Groq-specific headers
-                  headers['Authorization'] = f'Bearer {api_key_env}'
-                  
-                  # Use the Groq API base
-                  if not url.startswith('http'):
-                      url = f"https://api.groq.com/openai/v1{url}"
-                  
-                  # Call the original request method
-                  return original_request(self, method, url, headers, *args, **kwargs)
-              
-              APIRequestor.request = patched_request
-              print("✅ OpenAI requestor patched for Groq compatibility")
-          except Exception as e:
-              print(f"⚠️ Requestor patch failed: {e}")
-
-          print("✅ OpenAI v0.28 configured for Groq endpoint")
-
-          # =====================================================================
-          # Also set up modern client for our custom fallback
-          # =====================================================================
+          # Also set up modern client
           modern_client = None
           try:
               from openai import OpenAI as ModernOpenAI
@@ -156,7 +128,7 @@ jobs:
                   api_key=api_key_env,
                   base_url="https://api.groq.com/openai/v1"
               )
-              print("✅ Modern OpenAI client configured for fallback")
+              print("✅ Modern OpenAI client configured")
           except ImportError:
               print("⚠️ Modern OpenAI client not available")
 
@@ -175,11 +147,11 @@ jobs:
           GLOBAL_FALLBACK_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-underwater-light-beams-background-loop-42340-large.mp4"
           GLOBAL_FALLBACK_AUDIO_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
 
-          def generate_synthetic_video(dest_path):
-              print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic video...")
+          def generate_synthetic_video(dest_path, duration=120):
+              print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic video ({duration}s)...")
               try:
                   cmd = [
-                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=60:r=30',
+                      'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=0x1a237e:s=1080x1920:d={duration}:r=30',
                       '-vf', "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
                       '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', dest_path
                   ]
@@ -213,14 +185,66 @@ jobs:
                   print(f"⚠️ Download failed: {e}. Using synthetic fallback.")
                   if "audio" in asset_type.lower() or "music" in asset_type.lower():
                       cmd = [
-                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=60:sample_rate=44100',
+                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=120:sample_rate=44100',
                           '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', dest_path
                       ]
                       subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                       print(f"✨ Synthetic audio created: {dest_path}")
                   else:
-                      generate_synthetic_video(dest_path)
+                      generate_synthetic_video(dest_path, 120)
                   return dest_path
+
+          # =====================================================================
+          # CRITICAL FIX: Patch the video extraction to use our local file
+          # =====================================================================
+          try:
+              from shortGPT.editing_utils import handle_videos
+              
+              # Store original function
+              original_extract = handle_videos.extract_random_clip_from_video
+              
+              def patched_extract_random_clip(video_path, duration, target_duration, output_path):
+                  print(f"🎬 [PATCHED] Extracting clip from {video_path} (duration: {duration}, target: {target_duration})")
+                  
+                  # If the video path is our local file, use it directly
+                  if "test_background.mp4" in str(video_path):
+                      print(f"🎬 Using local test_background.mp4 for clip extraction")
+                      
+                      # Use FFmpeg to extract the clip directly
+                      try:
+                          os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                          cmd = [
+                              'ffmpeg', '-y', '-ss', '0', '-i', video_path,
+                              '-t', str(target_duration), '-an', '-vcodec', 'libx264',
+                              '-crf', '23', '-pix_fmt', 'yuv420p', output_path
+                          ]
+                          subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                          
+                          if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                              print(f"✅ Clip extracted successfully: {output_path}")
+                              return output_path
+                      except Exception as e:
+                          print(f"⚠️ FFmpeg extraction failed: {e}")
+                  
+                  # If video is too short, generate a synthetic clip
+                  try:
+                      duration_float = float(duration)
+                      if duration_float < target_duration:
+                          print(f"⚠️ Video too short ({duration}s), generating synthetic clip...")
+                          generate_synthetic_video(output_path, target_duration)
+                          return output_path
+                  except:
+                      pass
+                  
+                  # Fallback to original function
+                  return original_extract(video_path, duration, target_duration, output_path)
+              
+              # Replace the function
+              handle_videos.extract_random_clip_from_video = patched_extract_random_clip
+              print("✅ Video extraction patched successfully")
+              
+          except Exception as clip_patch_err:
+              print(f"⚠️ Clip patch notice: {clip_patch_err}")
 
           # =====================================================================
           # CRITICAL FIX: Override the AssetDatabase to use local files
@@ -252,7 +276,7 @@ jobs:
                   
                   @staticmethod
                   def get_asset_duration(key):
-                      return 60.0
+                      return 120.0  # 2 minutes
                   
                   @staticmethod
                   def get_asset_name(key):
@@ -267,58 +291,7 @@ jobs:
               print(f"⚠️ Database patch notice: {db_patch_err}")
 
           # =====================================================================
-          # MOVIEPY AUDIO READER PATCH
-          # =====================================================================
-          try:
-              import moviepy.audio.io.readers as readers
-              import numpy as np
-              
-              if hasattr(readers, 'AudioFileReader'):
-                  original_get_frame = readers.AudioFileReader.get_frame
-                  
-                  def patched_get_frame(self, t):
-                      try:
-                          return original_get_frame(self, t)
-                      except IndexError as e:
-                          if "index -1 is out of bounds" in str(e):
-                              print(f"⚠️ Audio buffer empty, returning silent frame")
-                              return np.zeros((len(t), self.nchannels), dtype=np.float32)
-                      raise e
-                  
-                  readers.AudioFileReader.get_frame = patched_get_frame
-                  print("✅ Audio reader patched")
-              else:
-                  print("⚠️ AudioFileReader not found, skipping patch")
-                  
-          except Exception as audio_patch_err:
-              print(f"⚠️ Audio patch notice: {audio_patch_err}")
-
-          # =====================================================================
-          # CORE MOVIEPY FFMPEG READER PATCH
-          # =====================================================================
-          try:
-              import moviepy.video.io.ffmpeg_reader as ffmpeg_reader
-              if hasattr(ffmpeg_reader, 'FFMPEG_VideoReader'):
-                  original_reader_init = ffmpeg_reader.FFMPEG_VideoReader.__init__
-                  
-                  def patched_reader_init(self, filename, *args, **kwargs):
-                      filename_str = str(filename)
-                      if filename_str.startswith("http://") or filename_str.startswith("https://"):
-                          print(f"🚨 [MOVIEPY]: Blocked remote URL: {filename_str}")
-                          if any(ext in filename_str.lower() for ext in [".mp3", ".wav", ".ogg", ".m4a"]):
-                              local_file = download_asset_locally(filename_str, LOCAL_AUDIO_PATH, "Audio")
-                          else:
-                              local_file = download_asset_locally(filename_str, LOCAL_VIDEO_PATH, "Video")
-                          filename = local_file
-                      original_reader_init(self, filename, *args, **kwargs)
-                      
-                  ffmpeg_reader.FFMPEG_VideoReader.__init__ = patched_reader_init
-                  print("✅ MoviePy FFMPEG reader patched")
-          except Exception as mpy_patch_err:
-              print(f"⚠️ MoviePy patch notice: {mpy_patch_err}")
-
-          # =====================================================================
-          # PATCH SHORTGPT GPT UTILS - USE MODERN CLIENT DIRECTLY
+          # PATCH SHORTGPT GPT UTILS
           # =====================================================================
           try:
               from shortGPT.gpt import gpt_utils
@@ -441,13 +414,13 @@ jobs:
               local_audio = "test_audio.mp3"
               
               if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
-                  print("⚠️ Creating test_background.mp4...")
-                  generate_synthetic_video(local_video)
+                  print("⚠️ Creating test_background.mp4 (120 seconds)...")
+                  generate_synthetic_video(local_video, 120)
               
               if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
                   print("⚠️ Creating test_audio.mp3...")
                   subprocess.run([
-                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=60:sample_rate=44100',
+                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=120:sample_rate=44100',
                       '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', local_audio
                   ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               

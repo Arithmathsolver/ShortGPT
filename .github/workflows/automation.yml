@@ -277,106 +277,47 @@ jobs:
               print(f"⚠️ Clip patch notice: {clip_patch_err}")
 
           # =====================================================================
-          # CRITICAL FIX: Patch image generation to use fallback images
+          # CRITICAL FIX: Patch the entire ShortEngine to handle None images
           # =====================================================================
           try:
               from shortGPT.engine import content_short_engine
               
-              # Save the original method
-              original_generate_images = content_short_engine.ShortEngine._generateImageUrls
+              # Fix _editAndRenderShort directly
+              original_edit_render = content_short_engine.ShortEngine._editAndRenderShort
               
-              def patched_generate_images(self):
-                  """Generate image URLs with fallback to local images"""
-                  try:
-                      # Try the original method first
-                      return original_generate_images(self)
-                  except Exception as e:
-                      print(f"⚠️ Image generation failed: {e}. Using fallback images.")
-                      # Use local fallback images
-                      fallback_images = []
+              def patched_edit_render(self):
+                  """Handle None or empty _db_timed_image_urls"""
+                  # Ensure _db_timed_image_urls is always a list
+                  if not hasattr(self, '_db_timed_image_urls') or self._db_timed_image_urls is None:
+                      print("⚠️ _db_timed_image_urls is None - creating fallback images")
+                      self._db_timed_image_urls = []
+                      
+                      # Check for existing fallback images
                       for i in range(1, 6):
                           img_path = f"fallback_image_{i}.png"
-                          if os.path.exists(img_path):
-                              fallback_images.append(img_path)
+                          if os.path.exists(img_path) and os.path.getsize(img_path) > 100:
+                              # Use the fallback image with timestamp
+                              self._db_timed_image_urls.append((i * 5.5, img_path))
                           else:
-                              # Create a fallback image on the fly
-                              try:
-                                  from PIL import Image, ImageDraw, ImageFont
-                                  img = Image.new('RGB', (1080, 1920), color=(26, 35, 126))
-                                  d = ImageDraw.Draw(img)
-                                  d.text((540, 960), f"Deep Sea Fact", fill=(255, 255, 255))
-                                  img_path = f"fallback_image_{i}.png"
-                                  img.save(img_path)
-                                  fallback_images.append(img_path)
-                              except:
-                                  fallback_images.append("test_background.mp4")
-                      
-                      # Set the images in the engine
-                      self._db_image_urls = fallback_images
-                      return fallback_images
+                              # Create a simple fallback
+                              self._db_timed_image_urls.append((i * 5.5, "test_background.mp4"))
+                  
+                  # If it's not a list, convert it
+                  if not isinstance(self._db_timed_image_urls, list):
+                      print(f"⚠️ _db_timed_image_urls is {type(self._db_timed_image_urls)}, converting to list")
+                      if self._db_timed_image_urls:
+                          self._db_timed_image_urls = list(self._db_timed_image_urls)
+                      else:
+                          self._db_timed_image_urls = []
+                  
+                  print(f"📸 Using {len(self._db_timed_image_urls)} images")
+                  return original_edit_render(self)
               
-              # Replace the method
-              content_short_engine.ShortEngine._generateImageUrls = patched_generate_images
-              print("✅ Image generation patched with fallback")
+              content_short_engine.ShortEngine._editAndRenderShort = patched_edit_render
+              print("✅ _editAndRenderShort patched")
               
-          except Exception as image_patch_err:
-              print(f"⚠️ Image patch notice: {image_patch_err}")
-
-          # =====================================================================
-          # LOCAL CACHING & SYNTHETIC RECOVERY ENGINE
-          # =====================================================================
-          LOCAL_VIDEO_PATH = os.path.abspath("fallback_background_video.mp4")
-          LOCAL_AUDIO_PATH = os.path.abspath("fallback_background_audio.mp3")
-          
-          GLOBAL_FALLBACK_VIDEO_URL = "https://assets.mixkit.co/videos/preview/mixkit-underwater-light-beams-background-loop-42340-large.mp4"
-          GLOBAL_FALLBACK_AUDIO_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-
-          def generate_synthetic_video(dest_path, duration=300):
-              print(f"🛠️ [RECOVERY ENGINE]: Generating synthetic video ({duration}s)...")
-              try:
-                  cmd = [
-                      'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=0x1a237e:s=1080x1920:d={duration}:r=30',
-                      '-vf', "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', dest_path
-                  ]
-                  subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                  print(f"✨ Synthetic video created: {dest_path}")
-              except Exception as e:
-                  print(f"❌ Failed to create synthetic video: {e}")
-
-          def download_asset_locally(url, dest_path, asset_type="Asset"):
-              if not url or not str(url).startswith("http"):
-                  return url
-              if os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
-                  return dest_path
-              
-              print(f"📥 [DOWNLOAD ENGINE]: Pre-fetching remote {asset_type}...")
-              curl_cmd = [
-                  'curl', '-L', '-s', '-k',
-                  '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  '-H', 'Accept: video/mp4,video/*,audio/*,*/*',
-                  '-o', dest_path, url
-              ]
-              
-              try:
-                  result = subprocess.run(curl_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
-                  if result.returncode == 0 and os.path.exists(dest_path) and os.path.getsize(dest_path) > 1000:
-                      print(f"✅ Downloaded: {dest_path} ({os.path.getsize(dest_path)} bytes)")
-                      return dest_path
-                  else:
-                      raise Exception("Download failed")
-              except Exception as e:
-                  print(f"⚠️ Download failed: {e}. Using synthetic fallback.")
-                  if "audio" in asset_type.lower() or "music" in asset_type.lower():
-                      cmd = [
-                          'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=300:sample_rate=44100',
-                          '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', dest_path
-                      ]
-                      subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                      print(f"✨ Synthetic audio created: {dest_path}")
-                  else:
-                      generate_synthetic_video(dest_path, 300)
-                  return dest_path
+          except Exception as edit_patch_err:
+              print(f"⚠️ Edit patch failed: {edit_patch_err}")
 
           # =====================================================================
           # CRITICAL FIX: Override the AssetDatabase to use local files
@@ -393,7 +334,7 @@ jobs:
                       # Skip subscribe animation - we'll handle it differently
                       if "subscribe" in key_str or "animation" in key_str:
                           print(f"⚠️ Subscribe animation requested, returning synthetic")
-                          return download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
+                          return "test_background.mp4"
                       
                       # Use local files if they exist and are valid
                       if "video" in key_str or "background" in key_str:
@@ -406,14 +347,11 @@ jobs:
                               print(f"✅ Using local test_audio.mp3")
                               return "test_audio.mp3"
                       
-                      # Fallback to downloads
-                      if "music" in key_str or "audio" in key_str:
-                          return download_asset_locally(GLOBAL_FALLBACK_AUDIO_URL, LOCAL_AUDIO_PATH, "Audio File")
-                      return download_asset_locally(GLOBAL_FALLBACK_VIDEO_URL, LOCAL_VIDEO_PATH, "Video File")
+                      return "test_background.mp4"
                   
                   @staticmethod
                   def get_asset_duration(key):
-                      return 300.0  # 5 minutes
+                      return 300.0
                   
                   @staticmethod
                   def get_asset_name(key):
@@ -422,6 +360,7 @@ jobs:
               if hasattr(asset_db, 'AssetDatabase'):
                   asset_db.AssetDatabase.get_asset_link = PatchedAssetDatabase.get_asset_link
                   asset_db.AssetDatabase.get_asset_duration = PatchedAssetDatabase.get_asset_duration
+                  asset_db.AssetDatabase.get_asset_name = PatchedAssetDatabase.get_asset_name
                   print("✅ AssetDatabase patched to use local files")
                   
           except Exception as db_patch_err:
@@ -552,7 +491,11 @@ jobs:
               
               if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
                   print("⚠️ Creating test_background.mp4 (300 seconds)...")
-                  generate_synthetic_video(local_video, 300)
+                  cmd = [
+                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=300:r=30',
+                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', local_video
+                  ]
+                  subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
               
               if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
                   print("⚠️ Creating test_audio.mp3...")
@@ -566,16 +509,6 @@ jobs:
                   print(f"   - test_background.mp4: {os.path.getsize(local_video):,} bytes")
               if os.path.exists(local_audio):
                   print(f"   - test_audio.mp3: {os.path.getsize(local_audio):,} bytes")
-
-              # Verify the patch was applied
-              try:
-                  import shortGPT.editing_utils.handle_videos as handle_videos
-                  if hasattr(handle_videos, 'extract_random_clip_from_video'):
-                      print(f"✅ extract_random_clip_from_video is patched: {handle_videos.extract_random_clip_from_video.__name__}")
-                  else:
-                      print("⚠️ extract_random_clip_from_video not found")
-              except:
-                  pass
 
               settings = get_automation_settings()
               topic = settings["niche_topic"]
@@ -708,8 +641,13 @@ jobs:
           fi
           
           # Verify files exist
-          if [ ! -f "client_secret.json" ] || [ ! -f "token.pickle" ]; then
-            echo "❌ Missing credentials"
+          if [ ! -f "client_secret.json" ]; then
+            echo "❌ client_secret.json not found"
+            exit 1
+          fi
+          
+          if [ ! -f "token.pickle" ]; then
+            echo "❌ token.pickle not found"
             exit 1
           fi
           
@@ -733,46 +671,107 @@ jobs:
             exit 0
           fi
           
-          # Create a temporary Python script for upload
-          cat > /tmp/upload.py << 'PYEOF'
+          python3 << 'EOF'
           import os
           import sys
           import pickle
           from google.auth.transport.requests import Request
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
-
+          
           SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-
+          
           video_path = os.environ.get('LATEST_VIDEO')
-
+          
           if not video_path or not os.path.exists(video_path):
-              print(f'❌ Video not found: {video_path}')
+              print(f"❌ Video not found: {video_path}")
               sys.exit(1)
-
+          
           if not os.path.exists('token.pickle'):
-              print('❌ token.pickle not found!')
+              print("❌ token.pickle not found!")
               sys.exit(1)
-
-          print(f'📤 Uploading: {video_path}')
-
+          
+          print(f"📤 Uploading: {video_path}")
+          
           title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
           if not title:
-              title = 'Deep Sea Facts - ShortGPT'
-
-          description = 'Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation'
-          keywords = ['shorts', 'facts', 'deepsea', 'ai', 'automation']
-
-          print(f'📝 Title: {title}')
-          print(f'🔒 Privacy: public')
-
+              title = "Deep Sea Facts - ShortGPT"
+          
+          description = "Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation"
+          keywords = ["shorts", "facts", "deepsea", "ai", "automation"]
+          
+          print(f"📝 Title: {title}")
+          print(f"🔒 Privacy: public")
+          
           try:
               with open('token.pickle', 'rb') as token:
                   creds = pickle.load(token)
-              print('✅ Loaded token.pickle')
+              print("✅ Loaded token.pickle")
           except Exception as e:
-              print(f'❌ Failed to load token: {e}')
+              print(f"❌ Failed to load token: {e}")
               sys.exit(1)
-
+          
           if creds and creds.expired and creds.refresh_token:
-             
+              try:
+                  creds.refresh(Request())
+                  print("✅ Token refreshed")
+              except Exception as e:
+                  print(f"⚠️ Token refresh failed: {e}")
+          
+          if not creds or not creds.valid:
+              print("❌ Invalid credentials")
+              sys.exit(1)
+          
+          try:
+              youtube = build('youtube', 'v3', credentials=creds)
+              print("✅ Authenticated with YouTube")
+              
+              body = {
+                  'snippet': {
+                      'title': title[:100],
+                      'description': description[:5000],
+                      'tags': keywords,
+                      'categoryId': '22'
+                  },
+                  'status': {
+                      'privacyStatus': 'public',
+                      'selfDeclaredMadeForKids': False
+                  }
+              }
+              
+              media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+              request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+              
+              response = None
+              last_progress = 0
+              while response is None:
+                  status, response = request.next_chunk()
+                  if status:
+                      progress = int(status.progress() * 100)
+                      if progress - last_progress >= 10:
+                          print(f"📊 Upload progress: {progress}%")
+                          last_progress = progress
+              
+              print(f"✅ Upload successful: https://youtu.be/{response['id']}")
+              
+          except Exception as e:
+              print(f"❌ Upload failed: {e}")
+              sys.exit(1)
+          EOF
+
+      - name: Upload Video as Backup Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-video
+          path: videos/*.mp4
+          retention-days: 7
+
+      - name: Complete
+        if: always()
+        run: |
+          echo "========================================================="
+          echo "🎉 WORKFLOW COMPLETE!"
+          echo "========================================================="
+          ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

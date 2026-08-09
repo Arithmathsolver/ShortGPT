@@ -777,3 +777,4 @@ jobs:
               print(f"❌ Failed to load token: {e}")
               sys.exit(1)
           
+          EOF

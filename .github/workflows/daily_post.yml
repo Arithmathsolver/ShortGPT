@@ -77,7 +77,7 @@ jobs:
                    -frames:v 1 "fallback_image_$i.png"
           done
 
-      - name: Run ShortGPT Automation (Football + Trending Only)
+      - name: Run ShortGPT Automation
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -91,7 +91,12 @@ jobs:
           CONTENT_TYPE: ${{ github.event.inputs.content_type || 'random' }}
         shell: python
         run: |
-          import os, sys, random, subprocess, shutil, traceback
+          import os
+          import sys
+          import random
+          import subprocess
+          import shutil
+          import traceback
           from pathlib import Path
 
           api_key_env = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -135,13 +140,7 @@ jobs:
                       "2014 Brazil World Cup best moments",
                       "Football legends 2014 and before",
                       "Iconic football goals 2014",
-                      "World Cup 2014 moments",
-                      "Vintage football skills",
-                      "Classic football players 2014",
-                      "Memorable football matches 2014",
-                      "Football history 2014 World Cup",
-                      "Legendary football goals 2014",
-                      "Retro football highlights"
+                      "World Cup 2014 moments"
                   ]
                   return random.sample(topics, min(3, len(topics)))
               else:
@@ -152,17 +151,11 @@ jobs:
                       "Incredible animal facts",
                       "Surprising historical events",
                       "Future technology predictions",
-                      "Hidden secrets of the universe",
-                      "Incredible human achievements",
-                      "Artificial intelligence breakthroughs",
-                      "Solar system discoveries",
-                      "Ancient mysteries revealed"
+                      "Hidden secrets of the universe"
                   ]
                   return random.sample(fallback_topics, min(3, len(fallback_topics)))
 
-          # =====================================================================
-          # CRITICAL FIX: Patch MoviePy TextClip to use a valid font
-          # =====================================================================
+          # Patch MoviePy TextClip
           try:
               import moviepy.video.VideoClip as videoclip
               orig = videoclip.TextClip
@@ -183,17 +176,12 @@ jobs:
           except:
               pass
 
-          # =====================================================================
-          # CRITICAL FIX: Patch video extraction to use FFmpeg directly
-          # =====================================================================
+          # Patch video extraction
           try:
               import shortGPT.editing_utils.handle_videos as hv
               def patched_extract(video_path, duration, target_duration, output_path):
-                  print(f"🎬 [PATCHED] Extracting clip from {video_path}")
-                  print(f"   Duration: {duration}, Target: {target_duration}")
-                  
+                  print(f"🎬 Extracting clip from {video_path}")
                   os.makedirs(os.path.dirname(output_path), exist_ok=True)
-                  
                   cmd = [
                       'ffmpeg', '-y', '-ss', '0', '-i', video_path,
                       '-t', str(target_duration), '-an', '-vcodec', 'libx264',
@@ -201,57 +189,37 @@ jobs:
                       output_path
                   ]
                   subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                  
                   if os.path.exists(output_path) and os.path.getsize(output_path) > 100000:
-                      print(f"✅ Clip extracted successfully: {output_path}")
                       return output_path
-                  
-                  print(f"🛠️ Generating synthetic video as fallback...")
                   cmd = [
                       'ffmpeg', '-y', '-f', 'lavfi', '-i', f'color=c=0x1a237e:s=1080x1920:d={target_duration}:r=30',
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-                      output_path
+                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', output_path
                   ]
                   subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                  
-                  if os.path.exists(output_path) and os.path.getsize(output_path) > 100000:
-                      print(f"✅ Synthetic clip created: {output_path}")
-                      return output_path
-                  
-                  raise Exception("Failed to create clip")
-              
+                  return output_path
               hv.extract_random_clip_from_video = patched_extract
               print("✅ Video extraction patched")
           except Exception as e:
               print(f"⚠️ Video extraction patch failed: {e}")
 
-          # =====================================================================
-          # CRITICAL FIX: Patch AssetDatabase to use local files
-          # =====================================================================
+          # Patch AssetDatabase
           try:
               from shortGPT.config import asset_db
               class PatchedDB:
                   @staticmethod
                   def get_asset_link(key):
                       key_str = str(key).lower()
-                      print(f"🔍 Asset request for: '{key_str}'")
-                      
                       if "subscribe" in key_str or "animation" in key_str:
                           return "test_background.mp4" if os.path.exists("test_background.mp4") else "fallback.mp4"
-                      
                       if "audio" in key_str or "music" in key_str:
                           return "test_audio.mp3" if os.path.exists("test_audio.mp3") else "test_background.mp4"
-                      
                       return "test_background.mp4" if os.path.exists("test_background.mp4") else "fallback.mp4"
-                  
                   @staticmethod
                   def get_asset_duration(key):
                       return 300.0
-                  
                   @staticmethod
                   def get_asset_name(key):
                       return str(key)
-              
               if hasattr(asset_db, 'AssetDatabase'):
                   asset_db.AssetDatabase.get_asset_link = PatchedDB.get_asset_link
                   asset_db.AssetDatabase.get_asset_duration = PatchedDB.get_asset_duration
@@ -260,9 +228,7 @@ jobs:
           except Exception as e:
               print(f"⚠️ AssetDatabase patch failed: {e}")
 
-          # =====================================================================
-          # CRITICAL FIX: Patch GPT utils to use Groq
-          # =====================================================================
+          # Patch GPT utils
           try:
               from shortGPT.gpt import gpt_utils
               def groq_completion(*args, **kwargs):
@@ -274,13 +240,11 @@ jobs:
                   if system:
                       messages.append({"role": "system", "content": system})
                   messages.append({"role": "user", "content": chat_prompt})
-                  
                   if modern_client:
                       response = modern_client.chat.completions.create(
                           model=model, messages=messages, temperature=float(temp)
                       )
                       return response.choices[0].message.content
-                  
                   import requests, json
                   response = requests.post(
                       "https://api.groq.com/openai/v1/chat/completions",
@@ -289,7 +253,6 @@ jobs:
                       timeout=60
                   )
                   return response.json()['choices'][0]['message']['content']
-              
               if hasattr(gpt_utils, 'llm_completion'):
                   gpt_utils.llm_completion = groq_completion
               if hasattr(gpt_utils, 'gpt3Turbo_completion'):
@@ -298,16 +261,11 @@ jobs:
           except Exception as e:
               print(f"⚠️ GPT patch failed: {e}")
 
-          # =====================================================================
-          # CRITICAL FIX: Patch ShortEngine _editAndRenderShort for None images
-          # =====================================================================
+          # Patch _editAndRenderShort for None images
           try:
               from shortGPT.engine import content_short_engine
-              
               original_edit_render = content_short_engine.ShortEngine._editAndRenderShort
-              
               def patched_edit_render(self):
-                  """Handle None or empty _db_timed_image_urls"""
                   if not hasattr(self, '_db_timed_image_urls') or self._db_timed_image_urls is None:
                       print("⚠️ _db_timed_image_urls is None - creating fallback images")
                       self._db_timed_image_urls = []
@@ -317,40 +275,28 @@ jobs:
                               self._db_timed_image_urls.append((i * 5.5, img_path))
                           else:
                               self._db_timed_image_urls.append((i * 5.5, "test_background.mp4"))
-                  
                   if not isinstance(self._db_timed_image_urls, list):
-                      print(f"⚠️ _db_timed_image_urls is {type(self._db_timed_image_urls)}, converting to list")
                       if self._db_timed_image_urls:
                           self._db_timed_image_urls = list(self._db_timed_image_urls)
                       else:
                           self._db_timed_image_urls = []
-                  
                   print(f"📸 Using {len(self._db_timed_image_urls)} images")
                   return original_edit_render(self)
-              
               content_short_engine.ShortEngine._editAndRenderShort = patched_edit_render
               print("✅ _editAndRenderShort patched")
-              
           except Exception as e:
               print(f"⚠️ Edit render patch failed: {e}")
 
-          # =====================================================================
-          # CRITICAL FIX: Patch _addYoutubeMetadata to ensure video exists
-          # =====================================================================
+          # Patch _addYoutubeMetadata
           try:
               from shortGPT.engine import content_short_engine
-              
               if hasattr(content_short_engine.ShortEngine, '_addYoutubeMetadata'):
                   original_metadata = content_short_engine.ShortEngine._addYoutubeMetadata
-                  
                   def patched_metadata(self):
-                      print("🔧 [PATCHED] _addYoutubeMetadata - ensuring video exists")
-                      
                       if hasattr(self, '_db_video_path'):
                           video_path = self._db_video_path
                           if not os.path.exists(video_path) or os.path.getsize(video_path) < 100000:
                               print(f"⚠️ Video not found or too small: {video_path}")
-                              
                               assets_dir = os.path.dirname(video_path)
                               if os.path.exists(assets_dir):
                                   mp4_files = [f for f in os.listdir(assets_dir) if f.endswith('.mp4') and os.path.getsize(os.path.join(assets_dir, f)) > 100000]
@@ -358,10 +304,7 @@ jobs:
                                       fallback_video = os.path.join(assets_dir, mp4_files[0])
                                       print(f"🔄 Using fallback video: {fallback_video}")
                                       shutil.copy2(fallback_video, video_path)
-                                      print(f"✅ Created fallback video at: {video_path}")
                                       return original_metadata(self)
-                              
-                              print("🛠️ Generating proper video from scratch...")
                               cmd = [
                                   'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=60:r=30',
                                   '-vf', f"drawtext=text='{self._db_facts_type}':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2",
@@ -370,17 +313,12 @@ jobs:
                               ]
                               subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                               print(f"✅ Created video at: {video_path}")
-                      
                       return original_metadata(self)
-                  
                   content_short_engine.ShortEngine._addYoutubeMetadata = patched_metadata
                   print("✅ _addYoutubeMetadata patched")
           except Exception as e:
               print(f"⚠️ Metadata patch failed: {e}")
 
-          # =====================================================================
-          # IMPORT SHORTGPT MODULES
-          # =====================================================================
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
           from shortGPT.engine.facts_short_engine import FactsShortEngine
           from shortGPT.config.languages import Language
@@ -420,7 +358,7 @@ jobs:
                   if video_files:
                       latest_video = max(video_files, key=lambda x: x.stat().st_mtime)
                       if latest_video and os.path.getsize(latest_video) > 100000:
-                          print(f"✅ Video rendered successfully: {latest_video} ({os.path.getsize(latest_video):,} bytes)")
+                          print(f"✅ Video rendered: {latest_video} ({os.path.getsize(latest_video):,} bytes)")
                       else:
                           print(f"⚠️ Video too small: {latest_video}")
                   
@@ -530,49 +468,49 @@ jobs:
             echo "📤 Uploading: $VIDEO"
             echo "📊 Size: $(du -h "$VIDEO" | cut -f1)"
             
-            python3 -c '
+            python3 -c "
 import os, sys, pickle
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-video_path = os.environ.get("LATEST_VIDEO")
+video_path = os.environ.get('LATEST_VIDEO')
 if not video_path or not os.path.exists(video_path):
     sys.exit(1)
 
-with open("token.pickle", "rb") as f:
+with open('token.pickle', 'rb') as f:
     creds = pickle.load(f)
 
 if creds and creds.expired and creds.refresh_token:
     creds.refresh(Request())
 
-youtube = build("youtube", "v3", credentials=creds)
+youtube = build('youtube', 'v3', credentials=creds)
 
-title = os.path.basename(video_path).replace(".mp4", "").replace("shorts_", "").replace("test_background_", "")
+title = os.path.basename(video_path).replace('.mp4', '').replace('shorts_', '').replace('test_background_', '')
 if len(title) > 80:
     title = title[:80]
-if not title or title.startswith("2026"):
-    title = "Amazing Facts - ShortGPT"
+if not title or title.startswith('2026'):
+    title = 'Amazing Facts - ShortGPT'
 
 body = {
-    "snippet": {
-        "title": title[:100],
-        "description": "Generated by ShortGPT.\n\n#shorts #facts #viral #trending #football",
-        "tags": ["shorts", "facts", "trending", "football"],
-        "categoryId": "22"
+    'snippet': {
+        'title': title[:100],
+        'description': 'Generated by ShortGPT.\n\n#shorts #facts #viral #trending #football',
+        'tags': ['shorts', 'facts', 'trending', 'football'],
+        'categoryId': '22'
     },
-    "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+    'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': False}
 }
 
 media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
 response = None
 while response is None:
     status, response = request.next_chunk()
     if status:
-        print(f"📊 Progress: {int(status.progress() * 100)}%")
-print(f"✅ Uploaded: https://youtu.be/{response['id']}")
-'
+        print(f'📊 Progress: {int(status.progress() * 100)}%')
+print(f'✅ Uploaded: https://youtu.be/{response['id']}')
+"
           done
 
       - name: Upload Backup Artifact
@@ -590,3 +528,4 @@ print(f"✅ Uploaded: https://youtu.be/{response['id']}")
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
+          echo "========================================================="

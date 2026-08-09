@@ -155,7 +155,11 @@ jobs:
                   ]
                   return random.sample(fallback_topics, min(3, len(fallback_topics)))
 
-          # Patch MoviePy TextClip
+          # =====================================================================
+          # ALL PATCHES MUST BE APPLIED BEFORE IMPORTING SHORTGPT MODULES
+          # =====================================================================
+
+          # Patch 1: MoviePy TextClip
           try:
               import moviepy.video.VideoClip as videoclip
               orig = videoclip.TextClip
@@ -176,7 +180,7 @@ jobs:
           except:
               pass
 
-          # Patch video extraction
+          # Patch 2: Video extraction
           try:
               import shortGPT.editing_utils.handle_videos as hv
               def patched_extract(video_path, duration, target_duration, output_path):
@@ -202,7 +206,7 @@ jobs:
           except Exception as e:
               print(f"⚠️ Video extraction patch failed: {e}")
 
-          # Patch AssetDatabase
+          # Patch 3: AssetDatabase
           try:
               from shortGPT.config import asset_db
               class PatchedDB:
@@ -228,7 +232,7 @@ jobs:
           except Exception as e:
               print(f"⚠️ AssetDatabase patch failed: {e}")
 
-          # Patch GPT utils
+          # Patch 4: GPT utils
           try:
               from shortGPT.gpt import gpt_utils
               def groq_completion(*args, **kwargs):
@@ -261,11 +265,17 @@ jobs:
           except Exception as e:
               print(f"⚠️ GPT patch failed: {e}")
 
-          # Patch _editAndRenderShort for None images
+          # Patch 5: CRITICAL - Fix _editAndRenderShort for None images
           try:
-              from shortGPT.engine import content_short_engine
-              original_edit_render = content_short_engine.ShortEngine._editAndRenderShort
+              # Directly patch the content_short_engine module
+              import shortGPT.engine.content_short_engine as cse
+              
+              # Save original method
+              original_edit_render = cse.ShortEngine._editAndRenderShort
+              
               def patched_edit_render(self):
+                  """Handle None or empty _db_timed_image_urls"""
+                  # Ensure _db_timed_image_urls is always a list
                   if not hasattr(self, '_db_timed_image_urls') or self._db_timed_image_urls is None:
                       print("⚠️ _db_timed_image_urls is None - creating fallback images")
                       self._db_timed_image_urls = []
@@ -275,23 +285,31 @@ jobs:
                               self._db_timed_image_urls.append((i * 5.5, img_path))
                           else:
                               self._db_timed_image_urls.append((i * 5.5, "test_background.mp4"))
+                  
+                  # If it's not a list, convert it
                   if not isinstance(self._db_timed_image_urls, list):
+                      print(f"⚠️ _db_timed_image_urls is {type(self._db_timed_image_urls)}, converting to list")
                       if self._db_timed_image_urls:
                           self._db_timed_image_urls = list(self._db_timed_image_urls)
                       else:
                           self._db_timed_image_urls = []
+                  
                   print(f"📸 Using {len(self._db_timed_image_urls)} images")
                   return original_edit_render(self)
-              content_short_engine.ShortEngine._editAndRenderShort = patched_edit_render
-              print("✅ _editAndRenderShort patched")
+              
+              # Replace the method
+              cse.ShortEngine._editAndRenderShort = patched_edit_render
+              print("✅ _editAndRenderShort patched successfully")
+              
           except Exception as e:
               print(f"⚠️ Edit render patch failed: {e}")
+              traceback.print_exc()
 
-          # Patch _addYoutubeMetadata
+          # Patch 6: _addYoutubeMetadata
           try:
-              from shortGPT.engine import content_short_engine
-              if hasattr(content_short_engine.ShortEngine, '_addYoutubeMetadata'):
-                  original_metadata = content_short_engine.ShortEngine._addYoutubeMetadata
+              import shortGPT.engine.content_short_engine as cse
+              if hasattr(cse.ShortEngine, '_addYoutubeMetadata'):
+                  original_metadata = cse.ShortEngine._addYoutubeMetadata
                   def patched_metadata(self):
                       if hasattr(self, '_db_video_path'):
                           video_path = self._db_video_path
@@ -314,11 +332,14 @@ jobs:
                               subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                               print(f"✅ Created video at: {video_path}")
                       return original_metadata(self)
-                  content_short_engine.ShortEngine._addYoutubeMetadata = patched_metadata
+                  cse.ShortEngine._addYoutubeMetadata = patched_metadata
                   print("✅ _addYoutubeMetadata patched")
           except Exception as e:
               print(f"⚠️ Metadata patch failed: {e}")
 
+          # =====================================================================
+          # NOW IMPORT THE REST OF THE MODULES
+          # =====================================================================
           from shortGPT.audio.edge_voice_module import EdgeTTSVoiceModule
           from shortGPT.engine.facts_short_engine import FactsShortEngine
           from shortGPT.config.languages import Language
@@ -528,4 +549,3 @@ print(f'✅ Uploaded: https://youtu.be/{response['id']}')
           echo "🎉 WORKFLOW COMPLETE!"
           echo "========================================================="
           ls -la videos/ 2>/dev/null || echo "No videos found"
-          echo "========================================================="

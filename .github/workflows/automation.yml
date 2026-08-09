@@ -780,6 +780,4 @@ except Exception as e:
 
 if creds and creds.expired and creds.refresh_token:
     try:
-        creds.refresh(Request())
-        print('✅ Token refreshed')
-    except Exception
+        creds

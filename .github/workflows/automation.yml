@@ -778,6 +778,4 @@ jobs:
               print(f"❌ Failed to load token: {e}")
               sys.exit(1)
           
-          if creds and creds.expired and creds.refresh_token:
-              try:
-                  creds.refresh(Request
+          if creds and creds

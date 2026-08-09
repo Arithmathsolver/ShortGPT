@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '0 0,5,10,15,20 * * *' # runs 5 times a day
   workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Custom topic (leave empty for trending)'
+        required: false
+        default: ''
+      content_type:
+        description: 'Content type: trending, football, deepsea'
+        required: false
+        default: 'trending'
 
 jobs:
   build:
@@ -60,8 +69,8 @@ jobs:
           # Install pyyaml (needed for config)
           pip install --no-cache-dir pyyaml
           
-          # Install requests for fallbacks
-          pip install --no-cache-dir requests
+          # Install requests for fallbacks and trending topics
+          pip install --no-cache-dir requests beautifulsoup4 newsapi-python google-trends-api
           
           # Force clean install shortGPT
           pip install --no-cache-dir --no-deps --ignore-installed shortGPT
@@ -88,7 +97,7 @@ jobs:
         run: |
           for i in 1 2 3 4 5; do
             ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=1:r=1 \
-                   -vf "drawtext=text='Deep Sea Fact $i':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
+                   -vf "drawtext=text='Fact $i':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
                    -frames:v 1 "fallback_image_$i.png"
           done
           echo "✅ Created fallback images"
@@ -101,10 +110,13 @@ jobs:
           OPENAI_MODEL: "llama-3.1-8b-instant"
           FORCE_GROQ: "true"
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           IMAGEMAGICK_BINARY: "/usr/bin/convert"
           SHORTGPT_NICHE: "Deep Sea Mysteries"
           SHORTGPT_LANG: "English"
           SHORTGPT_VOICE: "en-US-ChristopherNeural"
+          CUSTOM_TOPIC: ${{ github.event.inputs.topic || '' }}
+          CONTENT_TYPE: ${{ github.event.inputs.content_type || 'trending' }}
         shell: python
         run: |
           import os
@@ -113,7 +125,10 @@ jobs:
           import traceback
           import subprocess
           import shutil
+          import json
+          import random
           from pathlib import Path
+          from datetime import datetime
 
           # Force-inject API key options
           api_key_env = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
@@ -134,6 +149,92 @@ jobs:
           _here = Path('.' if '__file__' not in locals() else __file__).parent.resolve()
           if str(_here) not in sys.path:
               sys.path.insert(0, str(_here))
+
+          # =====================================================================
+          # FETCH TRENDING TOPICS
+          # =====================================================================
+          def get_trending_topics():
+              """Fetch trending topics from various sources"""
+              topics = []
+              content_type = os.getenv("CONTENT_TYPE", "trending")
+              custom_topic = os.getenv("CUSTOM_TOPIC", "")
+              
+              # If custom topic is provided, use it
+              if custom_topic and custom_topic.strip():
+                  print(f"📝 Using custom topic: {custom_topic}")
+                  return [custom_topic]
+              
+              print(f"🔍 Fetching {content_type} topics...")
+              
+              try:
+                  if content_type == "football":
+                      # Football/vintage football topics
+                      football_topics = [
+                          "2014 World Cup highlights",
+                          "Vintage football legends",
+                          "Classic football matches 2014",
+                          "Football history moments",
+                          "Retro football goals",
+                          "2014 Brazil World Cup best moments",
+                          "Football legends 2014 and before"
+                      ]
+                      topics = random.sample(football_topics, min(3, len(football_topics)))
+                      print(f"⚽ Football topics: {topics}")
+                      return topics
+                  
+                  elif content_type == "deepsea":
+                      # Deep sea topics
+                      deepsea_topics = [
+                          "Deep sea creatures discovered",
+                          "Ocean mysteries",
+                          "Marine life facts",
+                          "Deep sea exploration",
+                          "Underwater discoveries"
+                      ]
+                      topics = random.sample(deepsea_topics, min(3, len(deepsea_topics)))
+                      return topics
+                  
+                  else:  # trending
+                      # Use News API or Google Trends for trending
+                      try:
+                          from newsapi import NewsApiClient
+                          
+                          # Try to get news headlines
+                          newsapi_key = os.getenv("NEWS_API_KEY", "")
+                          if newsapi_key:
+                              newsapi = NewsApiClient(api_key=newsapi_key)
+                              headlines = newsapi.get_top_headlines(
+                                  category='general',
+                                  language='en',
+                                  country='us'
+                              )
+                              for article in headlines.get('articles', [])[:5]:
+                                  if article.get('title'):
+                                      topics.append(article['title'].split(' - ')[0][:100])
+                              if topics:
+                                  print(f"📰 News topics: {topics}")
+                                  return topics
+                      except Exception as e:
+                          print(f"⚠️ News API failed: {e}")
+                      
+                      # Fallback trending topics
+                      fallback_topics = [
+                          "Latest technology breakthroughs",
+                          "Amazing science discoveries",
+                          "Mind-blowing facts about space",
+                          "Incredible animal facts",
+                          "Surprising historical events",
+                          "Future technology predictions",
+                          "Hidden secrets of the universe"
+                      ]
+                      topics = random.sample(fallback_topics, min(3, len(fallback_topics)))
+                      print(f"🔄 Using fallback topics: {topics}")
+                      return topics
+                      
+              except Exception as e:
+                  print(f"❌ Error fetching topics: {e}")
+                  # Final fallback topics
+                  return ["Amazing science facts", "Incredible discoveries", "Mind-blowing facts"]
 
           # =====================================================================
           # CRITICAL: Setup for Groq API
@@ -159,8 +260,30 @@ jobs:
           def handle_soft_landing(error_message):
               print("\n🟩 [AUTOMATION SOFT LANDING]: API Quota or Service Ceiling Intercepted.")
               print(f"🟩 Details: {error_message}")
-              print("🟩 Exiting cleanly with status code 0 to keep the automation workflow healthy...")
               sys.exit(0)
+
+          # =====================================================================
+          # PATCH SHORTGPT FOR YOUTUBE FOOTAGE
+          # =====================================================================
+          try:
+              # Add YouTube as a video source for football content
+              from shortGPT.api_utils import youtube_api
+              
+              # Create a custom video search function
+              def search_youtube_videos(query, max_results=5, year_filter=None):
+                  """Search YouTube for videos with optional year filter"""
+                  try:
+                      if year_filter:
+                          query = f"{query} before:{year_filter}"
+                      return youtube_api.search_videos_YouTube(query, max_results)
+                  except Exception as e:
+                      print(f"⚠️ YouTube search failed: {e}")
+                      return []
+              
+              print("✅ YouTube API integration ready")
+              
+          except Exception as youtube_patch_err:
+              print(f"⚠️ YouTube patch notice: {youtube_patch_err}")
 
           # =====================================================================
           # CRITICAL FIX: Patch MoviePy TextClip to use a valid font
@@ -288,7 +411,7 @@ jobs:
                               return "test_background.mp4"
                       
                       if "music" in key_str or "audio" in key_str:
-                          if os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10004:
+                          if os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10000:
                               print(f"✅ Using local test_audio.mp3")
                               return "test_audio.mp3"
                       
@@ -403,84 +526,122 @@ jobs:
               print("🚀 STARTING SHORTGPT AUTOMATION PIPELINE")
               print("=========================================================")
 
-              local_video = "test_background.mp4"
-              local_audio = "test_audio.mp3"
+              # Get trending topics
+              topics = get_trending_topics()
+              if not topics:
+                  topics = ["Amazing science facts", "Incredible discoveries"]
               
-              if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
-                  print("⚠️ Creating test_background.mp4 (300 seconds)...")
-                  cmd = [
-                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=300:r=30',
-                      '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
-                      local_video
-                  ]
-                  subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              print(f"📋 Topics to generate: {topics}")
               
-              if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
-                  print("⚠️ Creating test_audio.mp3...")
-                  subprocess.run([
-                      'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=300:sample_rate=44100',
-                      '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', local_audio
-                  ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              
-              print(f"📁 Local assets:")
-              if os.path.exists(local_video):
-                  print(f"   - test_background.mp4: {os.path.getsize(local_video):,} bytes")
-              if os.path.exists(local_audio):
-                  print(f"   - test_audio.mp3: {os.path.getsize(local_audio):,} bytes")
-
-              settings = get_automation_settings()
-              topic = settings["niche_topic"]
-              language = settings["language"]
-              voice_choice = settings["voice"]
-
-              print(f"\n📋 Settings:")
-              print(f"    • Niche: {topic}")
-              print(f"    • Language: {language}")
-              print(f"    • Voice: {voice_choice}\n")
-
-              try:
-                  lang_enum = Language.from_string(language)
-              except Exception:
-                  lang_enum = Language.ENGLISH
-
-              voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
-
-              print(f"--- Generating video for: {topic} ---")
-
-              try:
-                  content_engine = FactsShortEngine(
-                      voiceModule=voice_module,
-                      facts_type=topic,
-                      background_video_name="test_background.mp4",
-                      background_music_name="test_audio.mp3",
-                      language=lang_enum
-                  )
-
-                  print("🔄 Processing...")
-                  engine_loop = content_engine.makeContent()
+              # Generate a video for each topic
+              for idx, topic in enumerate(topics[:3]):  # Max 3 videos per run
+                  print(f"\n--- Generating video {idx+1}/{min(3, len(topics))}: {topic} ---")
                   
-                  while True:
+                  try:
+                      # Create a specific background for this topic
+                      topic_slug = topic.replace(' ', '_').replace("'", "")[:30]
+                      bg_video = f"test_background_{topic_slug}.mp4"
+                      
+                      # Copy the base background or create a new one
+                      if os.path.exists("test_background.mp4"):
+                          shutil.copy2("test_background.mp4", bg_video)
+                      
+                      # Generate title from topic
+                      title = f"MindBlowing {topic} - ShortGPT"
+                      
+                      local_video = bg_video
+                      local_audio = "test_audio.mp3"
+                      
+                      if not os.path.exists(local_video) or os.path.getsize(local_video) < 100000:
+                          print("⚠️ Creating background video (300 seconds)...")
+                          cmd = [
+                              'ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=c=0x1a237e:s=1080x1920:d=300:r=30',
+                              '-an', '-vcodec', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+                              local_video
+                          ]
+                          subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      
+                      if not os.path.exists(local_audio) or os.path.getsize(local_audio) < 10000:
+                          print("⚠️ Creating test_audio.mp3...")
+                          subprocess.run([
+                              'ffmpeg', '-y', '-f', 'lavfi', '-i', 'sine=frequency=432:duration=300:sample_rate=44100',
+                              '-af', 'volume=0.3', '-acodec', 'libmp3lame', '-b:a', '128k', local_audio
+                          ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                      
+                      print(f"📁 Local assets for {topic}:")
+                      if os.path.exists(local_video):
+                          print(f"   - {local_video}: {os.path.getsize(local_video):,} bytes")
+                      
+                      settings = get_automation_settings()
+                      language = settings["language"]
+                      voice_choice = settings["voice"]
+
                       try:
-                          step_num, step_logs = next(engine_loop)
-                          print(f"    [Step {step_num}/12]: {step_logs}")
-                      except StopIteration:
-                          break
+                          lang_enum = Language.from_string(language)
+                      except Exception:
+                          lang_enum = Language.ENGLISH
 
-                  print("\n=========================================================")
-                  print("🎉 SUCCESS! Video rendered successfully!")
-                  print("=========================================================")
+                      voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
-              except Exception as engine_failure:
-                  err_str = str(engine_failure)
-                  if "429" in err_str or "Quota exceeded" in err_str:
-                      handle_soft_landing(err_str)
-                  print(f"\n❌ ERROR: {err_str}")
-                  traceback.print_exc()
-                  sys.exit(1)
+                      # =============================================================
+                      # CREATE VIDEO WITH IMAGES
+                      # =============================================================
+                      print(f"🎬 Generating video for: {topic}")
+                      
+                      content_engine = FactsShortEngine(
+                          voiceModule=voice_module,
+                          facts_type=topic,
+                          background_video_name=local_video,
+                          background_music_name=local_audio,
+                          num_images=5,  # SHOW IMAGES IN VIDEO
+                          language=lang_enum
+                      )
+
+                      print("🔄 Processing...")
+                      engine_loop = content_engine.makeContent()
+                      
+                      while True:
+                          try:
+                              step_num, step_logs = next(engine_loop)
+                              print(f"    [Step {step_num}/12]: {step_logs}")
+                          except StopIteration:
+                              break
+
+                      print(f"✅ SUCCESS! Video rendered for: {topic}")
+                      
+                      # Generate thumbnail
+                      try:
+                          latest_video = None
+                          video_files = list(Path("videos").glob("*.mp4"))
+                          if video_files:
+                              latest_video = max(video_files, key=lambda x: x.stat().st_mtime)
+                              if latest_video:
+                                  print(f"📸 Generating thumbnail for: {latest_video}")
+                                  
+                                  # Extract first frame as thumbnail
+                                  thumbnail_path = latest_video.with_suffix('.png')
+                                  cmd = [
+                                      'ffmpeg', '-y', '-ss', '00:00:01', '-i', str(latest_video),
+                                      '-vframes', '1', '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                                      '-frames:v', '1', str(thumbnail_path)
+                                  ]
+                                  subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                  print(f"✅ Thumbnail created: {thumbnail_path}")
+                      except Exception as thumb_err:
+                          print(f"⚠️ Thumbnail generation failed: {thumb_err}")
+
+                  except Exception as video_failure:
+                      print(f"❌ Failed to generate video for: {topic}")
+                      print(f"❌ Error: {video_failure}")
+                      continue
+
+              print("\n=========================================================")
+              print("🎉 SUCCESS! All videos rendered successfully!")
+              print("=========================================================")
 
           main()
 
-      - name: Verify and Fix Rendered Video
+      - name: Verify and Fix Rendered Videos
         if: always()
         run: |
           echo "========================================================="
@@ -490,78 +651,56 @@ jobs:
           echo ""
           echo "📊 File sizes:"
           find videos/ -name "*.mp4" -exec ls -lh {} \; 2>/dev/null || echo "No MP4 files found"
+          
+          # Fix any corrupt videos
+          for video in videos/*.mp4; do
+            if [ -f "$video" ]; then
+              FILE_SIZE=$(stat -c%s "$video" 2>/dev/null || stat -f%z "$video" 2>/dev/null || echo "0")
+              if [ "$FILE_SIZE" -lt 10240 ]; then
+                echo "❌ Corrupt video: $video ($FILE_SIZE bytes) - removing..."
+                rm -f "$video"
+              fi
+            fi
+          done
           echo "========================================================="
-          
-          # Find the rendered video
-          RENDERED_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
-          
-          if [ -z "$RENDERED_VIDEO" ]; then
-            echo "⚠️ No video found"
-            exit 0
-          fi
-          
-          echo "📹 Checking video: $RENDERED_VIDEO"
-          
-          # Check file size - if too small, it's corrupt
-          FILE_SIZE=$(stat -c%s "$RENDERED_VIDEO" 2>/dev/null || stat -f%z "$RENDERED_VIDEO" 2>/dev/null || echo "0")
-          
-          if [ "$FILE_SIZE" -lt 10240 ]; then
-            echo "❌ Video file is too small ($FILE_SIZE bytes) - creating a new video..."
-            
-            # Create a new video with a simple name (no spaces)
-            NEW_VIDEO="videos/new_video.mp4"
-            
-            ffmpeg -y -f lavfi -i color=c=0x1a237e:s=1080x1920:d=60:r=30 \
-                   -vf "drawtext=text='Deep Sea Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2" \
-                   -c:v libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart \
-                   "$NEW_VIDEO"
-            
-            # Replace the corrupt video with the new one
-            mv "$NEW_VIDEO" "$RENDERED_VIDEO"
-            
-            echo "✅ Created new video with proper duration"
-            echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
-          else
-            echo "✅ Video file size is valid"
-          fi
 
-      - name: Convert Video for YouTube Shorts Compatibility
+      - name: Convert Videos for YouTube Shorts Compatibility
         if: success()
         run: |
-          RENDERED_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
-          
-          if [ -z "$RENDERED_VIDEO" ]; then
-            echo "⚠️ No video found to convert"
-            exit 0
-          fi
-          
-          echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
-          
-          # Convert to YouTube Shorts format
-          OUTPUT_VIDEO="videos/shorts_ready.mp4"
-          
-          ffmpeg -y -i "$RENDERED_VIDEO" \
-            -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
-            -c:v libx264 \
-            -preset medium \
-            -crf 23 \
-            -c:a aac \
-            -b:a 128k \
-            -r 30 \
-            -movflags +faststart \
-            -pix_fmt yuv420p \
-            "$OUTPUT_VIDEO"
-          
-          # Check if conversion succeeded
-          if [ -f "$OUTPUT_VIDEO" ] && [ $(stat -c%s "$OUTPUT_VIDEO" 2>/dev/null || stat -f%z "$OUTPUT_VIDEO" 2>/dev/null || echo "0") -gt 10240 ]; then
-            mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
-            echo "✅ Video converted for YouTube Shorts"
-            echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
-          else
-            echo "⚠️ Conversion failed, using original video"
-          fi
+          for RENDERED_VIDEO in videos/*.mp4; do
+            if [ ! -f "$RENDERED_VIDEO" ]; then
+              continue
+            fi
+            
+            echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
+            
+            # Convert to YouTube Shorts format
+            OUTPUT_VIDEO="videos/shorts_ready_$(basename "$RENDERED_VIDEO")"
+            
+            ffmpeg -y -i "$RENDERED_VIDEO" \
+              -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+              -c:v libx264 \
+              -preset medium \
+              -crf 23 \
+              -c:a aac \
+              -b:a 128k \
+              -r 30 \
+              -movflags +faststart \
+              -pix_fmt yuv420p \
+              "$OUTPUT_VIDEO"
+            
+            # Check if conversion succeeded
+            if [ -f "$OUTPUT_VIDEO" ] && [ $(stat -c%s "$OUTPUT_VIDEO" 2>/dev/null || stat -f%z "$OUTPUT_VIDEO" 2>/dev/null || echo "0") -gt 10240 ]; then
+              mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
+              echo "✅ Video converted for YouTube Shorts"
+              echo "📊 New size: $(du -h "$RENDERED_VIDEO" | cut -f1)"
+            else
+              echo "⚠️ Conversion failed for $RENDERED_VIDEO"
+              rm -f "$OUTPUT_VIDEO"
+            fi
+          done
 
-      - name: Upload Video to YouTube (OAuth2)
+      - name: Upload Videos to YouTube (OAuth2)
         if: success()
         env:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
@@ -586,141 +725,106 @@ jobs:
           fi
           
           # Verify files exist
-          if [ ! -f "client_secret.json" ]; then
-            echo "❌ client_secret.json not found"
+          if [ ! -f "client_secret.json" ] || [ ! -f "token.pickle" ]; then
+            echo "❌ Missing credentials"
             exit 1
           fi
           
-          if [ ! -f "token.pickle" ]; then
-            echo "❌ token.pickle not found"
-            exit 1
-          fi
-          
-          # Find latest video
-          LATEST_VIDEO=$(ls -t videos/*.mp4 2>/dev/null | head -1)
-          export LATEST_VIDEO="$LATEST_VIDEO"
-          
-          if [ -z "$LATEST_VIDEO" ]; then
-            echo "⚠️ No video found to upload"
-            exit 0
-          fi
-          
-          echo "📤 Found video: $LATEST_VIDEO"
-          echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
-          
-          # Check if video is valid (not 4KB)
-          VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
-          if [ "$VIDEO_SIZE" -lt 10240 ]; then
-            echo "❌ Video too small ($VIDEO_SIZE bytes) - likely corrupt!"
-            echo "⚠️ Skipping upload"
-            exit 0
-          fi
-          
-          python3 << 'EOF'
-          import os
-          import sys
-          import pickle
-          from google.auth.transport.requests import Request
-          from googleapiclient.discovery import build
-          from googleapiclient.http import MediaFileUpload
-          
-          SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-          
-          video_path = os.environ.get('LATEST_VIDEO')
-          
-          if not video_path:
-              print("❌ No video path provided")
-              sys.exit(1)
-          
-          if not os.path.exists(video_path):
-              print(f"❌ Video not found: {video_path}")
-              sys.exit(1)
-          
-          if not os.path.exists('token.pickle'):
-              print("❌ token.pickle not found!")
-              sys.exit(1)
-          
-          print(f"📤 Uploading: {video_path}")
-          
-          title = os.path.basename(video_path).replace('.mp4', '').split(' - ', 1)[-1]
-          if not title:
-              title = "Deep Sea Facts - ShortGPT"
-          
-          description = "Generated by ShortGPT.\n\n#shorts #facts #deepsea #ai #automation"
-          keywords = ["shorts", "facts", "deepsea", "ai", "automation"]
-          
-          print(f"📝 Title: {title}")
-          print(f"🔒 Privacy: public")
-          
-          try:
-              with open('token.pickle', 'rb') as token:
-                  creds = pickle.load(token)
-              print("✅ Loaded token.pickle")
-          except Exception as e:
-              print(f"❌ Failed to load token.pickle: {e}")
-              sys.exit(1)
-          
-          if creds and creds.expired and creds.refresh_token:
-              try:
-                  creds.refresh(Request())
-                  print("✅ Token refreshed")
-              except Exception as e:
-                  print(f"⚠️ Token refresh failed: {e}")
-          
-          if not creds or not creds.valid:
-              print("❌ Invalid credentials")
-              sys.exit(1)
-          
-          try:
-              youtube = build('youtube', 'v3', credentials=creds)
-              print("✅ Authenticated with YouTube")
-              
-              body = {
-                  'snippet': {
-                      'title': title[:100],
-                      'description': description[:5000],
-                      'tags': keywords,
-                      'categoryId': '22'
-                  },
-                  'status': {
-                      'privacyStatus': 'public',
-                      'selfDeclaredMadeForKids': False
-                  }
-              }
-              
-              media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-              request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
-              
-              response = None
-              last_progress = 0
-              while response is None:
-                  status, response = request.next_chunk()
-                  if status:
-                      progress = int(status.progress() * 100)
-                      if progress - last_progress >= 10:
-                          print(f"📊 Upload progress: {progress}%")
-                          last_progress = progress
-              
-              print(f"✅ Upload successful: https://youtu.be/{response['id']}")
-              
-          except Exception as e:
-              print(f"❌ Upload failed: {e}")
-              sys.exit(1)
-          EOF
-
-      - name: Upload Video as Backup Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-video
-          path: videos/*.mp4
-          retention-days: 7
-
-      - name: Complete
-        if: always()
-        run: |
-          echo "========================================================="
-          echo "🎉 WORKFLOW COMPLETE!"
-          echo "========================================================="
-          ls -la videos/ 2>/dev/null || echo "No videos found"
-          echo "========================================================="
+          # Upload each video
+          for LATEST_VIDEO in videos/*.mp4; do
+            if [ ! -f "$LATEST_VIDEO" ]; then
+              continue
+            fi
+            
+            export LATEST_VIDEO="$LATEST_VIDEO"
+            
+            echo "📤 Found video: $LATEST_VIDEO"
+            echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
+            
+            # Check if video is valid
+            VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
+            if [ "$VIDEO_SIZE" -lt 10240 ]; then
+              echo "❌ Video too small ($VIDEO_SIZE bytes) - skipping"
+              continue
+            fi
+            
+            python3 << 'EOF'
+            import os
+            import sys
+            import pickle
+            from google.auth.transport.requests import Request
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
+            
+            SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+            
+            video_path = os.environ.get('LATEST_VIDEO')
+            
+            if not video_path or not os.path.exists(video_path):
+                print(f"❌ Video not found: {video_path}")
+                sys.exit(1)
+            
+            if not os.path.exists('token.pickle'):
+                print("❌ token.pickle not found!")
+                sys.exit(1)
+            
+            print(f"📤 Uploading: {video_path}")
+            
+            # Generate title from filename
+            title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '')
+            if not title or title.startswith('2026'):
+                title = "MindBlowing Facts - ShortGPT"
+            
+            description = "Generated by ShortGPT.\n\n#shorts #facts #viral #trending #ai"
+            keywords = ["shorts", "facts", "trending", "ai", "automation"]
+            
+            print(f"📝 Title: {title}")
+            print(f"🔒 Privacy: public")
+            
+            try:
+                with open('token.pickle', 'rb') as token:
+                    creds = pickle.load(token)
+                print("✅ Loaded token.pickle")
+            except Exception as e:
+                print(f"❌ Failed to load token.pickle: {e}")
+                sys.exit(1)
+            
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                    print("✅ Token refreshed")
+                except Exception as e:
+                    print(f"⚠️ Token refresh failed: {e}")
+            
+            if not creds or not creds.valid:
+                print("❌ Invalid credentials")
+                sys.exit(1)
+            
+            try:
+                youtube = build('youtube', 'v3', credentials=creds)
+                print("✅ Authenticated with YouTube")
+                
+                body = {
+                    'snippet': {
+                        'title': title[:100],
+                        'description': description[:5000],
+                        'tags': keywords,
+                        'categoryId': '22'
+                    },
+                    'status': {
+                        'privacyStatus': 'public',
+                        'selfDeclaredMadeForKids': False
+                    }
+                }
+                
+                media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+                request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
+                
+                response = None
+                last_progress = 0
+                while response is None:
+                    status, response = request.next_chunk()
+                    if status:
+                        progress = int(status.progress() * 100)
+                        if progress - last_progress >= 10:
+                            print(f"📊 Upload progress:

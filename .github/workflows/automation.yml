@@ -603,6 +603,7 @@ jobs:
                       facts_type=topic,
                       background_video_name="test_background.mp4",
                       background_music_name="test_audio.mp3",
+                      num_images=5,
                       language=lang_enum
                   )
 
@@ -777,4 +778,6 @@ jobs:
               print(f"❌ Failed to load token: {e}")
               sys.exit(1)
           
-          EOF
+          if creds and creds.expired and creds.refresh_token:
+              try:
+                  creds.refresh(Request

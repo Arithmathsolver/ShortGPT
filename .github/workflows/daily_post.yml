@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       topic:
-        description: 'Custom topic (leave empty for trending)'
+        description: 'Custom topic (leave empty for random)'
         required: false
         default: ''
       content_type:
-        description: 'Content type: trending, football, deepsea'
+        description: 'Content type: random, football, trending, deepsea'
         required: false
-        default: 'trending'
+        default: 'random'
 
 jobs:
   build:
@@ -116,7 +116,7 @@ jobs:
           SHORTGPT_LANG: "English"
           SHORTGPT_VOICE: "en-US-ChristopherNeural"
           CUSTOM_TOPIC: ${{ github.event.inputs.topic || '' }}
-          CONTENT_TYPE: ${{ github.event.inputs.content_type || 'trending' }}
+          CONTENT_TYPE: ${{ github.event.inputs.content_type || 'random' }}
         shell: python
         run: |
           import os
@@ -151,51 +151,91 @@ jobs:
               sys.path.insert(0, str(_here))
 
           # =====================================================================
-          # FETCH TRENDING TOPICS
+          # RANDOM TOPIC SELECTOR
           # =====================================================================
-          def get_trending_topics():
-              """Fetch trending topics from various sources"""
-              topics = []
-              content_type = os.getenv("CONTENT_TYPE", "trending")
-              custom_topic = os.getenv("CUSTOM_TOPIC", "")
+          def get_random_content_type():
+              """Randomly select between football, trending, and deep sea"""
+              content_type = os.getenv("CONTENT_TYPE", "random").lower()
+              custom_topic = os.getenv("CUSTOM_TOPIC", "").strip()
               
               # If custom topic is provided, use it
-              if custom_topic and custom_topic.strip():
+              if custom_topic:
+                  print(f"📝 Using custom topic: {custom_topic}")
+                  return custom_topic, "custom"
+              
+              # If content_type is specified and not random, use it
+              if content_type in ["football", "trending", "deepsea"]:
+                  print(f"📝 Using specified content type: {content_type}")
+                  return None, content_type
+              
+              # Random selection
+              types = ["football", "trending", "deepsea"]
+              selected = random.choice(types)
+              print(f"🎲 Randomly selected: {selected}")
+              return None, selected
+
+          def get_trending_topics(content_type, custom_topic=None):
+              """Fetch trending topics from various sources"""
+              topics = []
+              
+              # If custom topic is provided, use it
+              if custom_topic:
                   print(f"📝 Using custom topic: {custom_topic}")
                   return [custom_topic]
               
               print(f"🔍 Fetching {content_type} topics...")
               
               try:
+                  # === FOOTBALL TOPICS ===
                   if content_type == "football":
-                      # Football/vintage football topics
                       football_topics = [
+                          # Vintage football (2014 and before)
                           "2014 World Cup highlights",
-                          "Vintage football legends",
+                          "Vintage football legends 2014",
                           "Classic football matches 2014",
                           "Football history moments",
-                          "Retro football goals",
+                          "Retro football goals 2014",
                           "2014 Brazil World Cup best moments",
-                          "Football legends 2014 and before"
+                          "Football legends 2014 and before",
+                          "Iconic football goals 2014",
+                          "World Cup 2014 moments",
+                          "Vintage football skills",
+                          "Classic football players 2014",
+                          "Memorable football matches 2014",
+                          "Football history 2014 World Cup",
+                          "Legendary football goals 2014",
+                          "Retro football highlights"
                       ]
+                      # Select 3 random topics
                       topics = random.sample(football_topics, min(3, len(football_topics)))
                       print(f"⚽ Football topics: {topics}")
                       return topics
                   
+                  # === DEEP SEA TOPICS ===
                   elif content_type == "deepsea":
-                      # Deep sea topics
                       deepsea_topics = [
                           "Deep sea creatures discovered",
-                          "Ocean mysteries",
-                          "Marine life facts",
-                          "Deep sea exploration",
-                          "Underwater discoveries"
+                          "Ocean mysteries explained",
+                          "Marine life amazing facts",
+                          "Deep sea exploration discoveries",
+                          "Underwater wonders of the ocean",
+                          "Deep sea creatures you won't believe",
+                          "Ocean depths mysteries",
+                          "Marine biology discoveries",
+                          "Deep sea animals facts",
+                          "Underwater world secrets",
+                          "Ocean life amazing facts",
+                          "Deep sea creatures 2025",
+                          "Marine ecosystem wonders",
+                          "Deep sea exploration 2025",
+                          "Ocean mysteries solved"
                       ]
                       topics = random.sample(deepsea_topics, min(3, len(deepsea_topics)))
+                      print(f"🌊 Deep sea topics: {topics}")
                       return topics
                   
+                  # === TRENDING TOPICS ===
                   else:  # trending
-                      # Use News API or Google Trends for trending
                       try:
                           from newsapi import NewsApiClient
                           
@@ -225,10 +265,15 @@ jobs:
                           "Incredible animal facts",
                           "Surprising historical events",
                           "Future technology predictions",
-                          "Hidden secrets of the universe"
+                          "Hidden secrets of the universe",
+                          "Incredible human achievements",
+                          "Amazing nature phenomena",
+                          "Scientific discoveries 2025",
+                          "Technology innovations 2025",
+                          "Space exploration discoveries"
                       ]
                       topics = random.sample(fallback_topics, min(3, len(fallback_topics)))
-                      print(f"🔄 Using fallback topics: {topics}")
+                      print(f"🔄 Trending topics: {topics}")
                       return topics
                       
               except Exception as e:
@@ -266,10 +311,8 @@ jobs:
           # PATCH SHORTGPT FOR YOUTUBE FOOTAGE
           # =====================================================================
           try:
-              # Add YouTube as a video source for football content
               from shortGPT.api_utils import youtube_api
               
-              # Create a custom video search function
               def search_youtube_videos(query, max_results=5, year_filter=None):
                   """Search YouTube for videos with optional year filter"""
                   try:
@@ -526,11 +569,23 @@ jobs:
               print("🚀 STARTING SHORTGPT AUTOMATION PIPELINE")
               print("=========================================================")
 
-              # Get trending topics
-              topics = get_trending_topics()
+              # Get random content type and topics
+              custom_topic, content_type = get_random_content_type()
+              topics = get_trending_topics(content_type, custom_topic)
+              
               if not topics:
                   topics = ["Amazing science facts", "Incredible discoveries"]
               
+              # Get emoji for the content type
+              emojis = {
+                  "football": "⚽",
+                  "trending": "🔥",
+                  "deepsea": "🌊",
+                  "custom": "📝"
+              }
+              emoji = emojis.get(content_type, "🎬")
+              
+              print(f"📋 Content Type: {content_type.upper()} {emoji}")
               print(f"📋 Topics to generate: {topics}")
               
               # Generate a video for each topic
@@ -547,7 +602,12 @@ jobs:
                           shutil.copy2("test_background.mp4", bg_video)
                       
                       # Generate title from topic
-                      title = f"MindBlowing {topic} - ShortGPT"
+                      if content_type == "football":
+                          title = f"⚽ Vintage Football {topic} - ShortGPT"
+                      elif content_type == "deepsea":
+                          title = f"🌊 {topic} - ShortGPT"
+                      else:
+                          title = f"🔥 {topic} - ShortGPT"
                       
                       local_video = bg_video
                       local_audio = "test_audio.mp3"
@@ -586,7 +646,7 @@ jobs:
                       # =============================================================
                       # CREATE VIDEO WITH IMAGES
                       # =============================================================
-                      print(f"🎬 Generating video for: {topic}")
+                      print(f"🎬 Generating {content_type} video for: {topic}")
                       
                       content_engine = FactsShortEngine(
                           voiceModule=voice_module,
@@ -764,67 +824,4 @@ jobs:
                 print(f"❌ Video not found: {video_path}")
                 sys.exit(1)
             
-            if not os.path.exists('token.pickle'):
-                print("❌ token.pickle not found!")
-                sys.exit(1)
-            
-            print(f"📤 Uploading: {video_path}")
-            
-            # Generate title from filename
-            title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '')
-            if not title or title.startswith('2026'):
-                title = "MindBlowing Facts - ShortGPT"
-            
-            description = "Generated by ShortGPT.\n\n#shorts #facts #viral #trending #ai"
-            keywords = ["shorts", "facts", "trending", "ai", "automation"]
-            
-            print(f"📝 Title: {title}")
-            print(f"🔒 Privacy: public")
-            
-            try:
-                with open('token.pickle', 'rb') as token:
-                    creds = pickle.load(token)
-                print("✅ Loaded token.pickle")
-            except Exception as e:
-                print(f"❌ Failed to load token.pickle: {e}")
-                sys.exit(1)
-            
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                    print("✅ Token refreshed")
-                except Exception as e:
-                    print(f"⚠️ Token refresh failed: {e}")
-            
-            if not creds or not creds.valid:
-                print("❌ Invalid credentials")
-                sys.exit(1)
-            
-            try:
-                youtube = build('youtube', 'v3', credentials=creds)
-                print("✅ Authenticated with YouTube")
-                
-                body = {
-                    'snippet': {
-                        'title': title[:100],
-                        'description': description[:5000],
-                        'tags': keywords,
-                        'categoryId': '22'
-                    },
-                    'status': {
-                        'privacyStatus': 'public',
-                        'selfDeclaredMadeForKids': False
-                    }
-                }
-                
-                media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-                request = youtube.videos().insert(part='snippet,status', body=body, media_body=media)
-                
-                response = None
-                last_progress = 0
-                while response is None:
-                    status, response = request.next_chunk()
-                    if status:
-                        progress = int(status.progress() * 100)
-                        if progress - last_progress >= 10:
-                            print(f"📊 Upload progress:
+            if not os.path.exists('

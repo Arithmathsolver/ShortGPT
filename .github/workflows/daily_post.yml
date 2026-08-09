@@ -288,7 +288,7 @@ jobs:
                               return "test_background.mp4"
                       
                       if "music" in key_str or "audio" in key_str:
-                          if os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10000:
+                          if os.path.exists("test_audio.mp3") and os.path.getsize("test_audio.mp3") > 10004:
                               print(f"✅ Using local test_audio.mp3")
                               return "test_audio.mp3"
                       

@@ -10,7 +10,7 @@ on:
         required: false
         default: ''
       content_type:
-        description: 'Content type: random, football, trending, deepsea'
+        description: 'Content type: random, football, trending'
         required: false
         default: 'random'
 
@@ -82,7 +82,7 @@ jobs:
         run: |
           # Generate a 300-second background video (5 minutes) - ensures it's never "too short"
           ffmpeg -f lavfi -i color=c=0x1a237e:s=1080x1920:d=300:r=30 \
-                 -vf "drawtext=text='Deep Sea Mysteries':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Facts & Discovery':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
+                 -vf "drawtext=text='Amazing Facts':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2,drawtext=text='Discover More':fontcolor=#64b5f6:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2+80" \
                  -an -vcodec libx264 -pix_fmt yuv420p -crf 23 -movflags +faststart test_background.mp4
           
           # Create audio track
@@ -112,7 +112,7 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           IMAGEMAGICK_BINARY: "/usr/bin/convert"
-          SHORTGPT_NICHE: "Deep Sea Mysteries"
+          SHORTGPT_NICHE: "Trending Topics"
           SHORTGPT_LANG: "English"
           SHORTGPT_VOICE: "en-US-ChristopherNeural"
           CUSTOM_TOPIC: ${{ github.event.inputs.topic || '' }}
@@ -151,10 +151,10 @@ jobs:
               sys.path.insert(0, str(_here))
 
           # =====================================================================
-          # RANDOM TOPIC SELECTOR
+          # RANDOM TOPIC SELECTOR (Football or Trending only)
           # =====================================================================
           def get_random_content_type():
-              """Randomly select between football, trending, and deep sea"""
+              """Randomly select between football and trending"""
               content_type = os.getenv("CONTENT_TYPE", "random").lower()
               custom_topic = os.getenv("CUSTOM_TOPIC", "").strip()
               
@@ -164,12 +164,12 @@ jobs:
                   return custom_topic, "custom"
               
               # If content_type is specified and not random, use it
-              if content_type in ["football", "trending", "deepsea"]:
+              if content_type in ["football", "trending"]:
                   print(f"📝 Using specified content type: {content_type}")
                   return None, content_type
               
-              # Random selection
-              types = ["football", "trending", "deepsea"]
+              # Random selection between football and trending only
+              types = ["football", "trending"]
               selected = random.choice(types)
               print(f"🎲 Randomly selected: {selected}")
               return None, selected
@@ -204,34 +204,16 @@ jobs:
                           "Memorable football matches 2014",
                           "Football history 2014 World Cup",
                           "Legendary football goals 2014",
-                          "Retro football highlights"
+                          "Retro football highlights",
+                          "2014 World Cup unforgettable moments",
+                          "Football icons of 2014",
+                          "Classic football rivalries 2014",
+                          "Vintage football matches 2014",
+                          "World Cup 2014 best goals"
                       ]
                       # Select 3 random topics
                       topics = random.sample(football_topics, min(3, len(football_topics)))
                       print(f"⚽ Football topics: {topics}")
-                      return topics
-                  
-                  # === DEEP SEA TOPICS ===
-                  elif content_type == "deepsea":
-                      deepsea_topics = [
-                          "Deep sea creatures discovered",
-                          "Ocean mysteries explained",
-                          "Marine life amazing facts",
-                          "Deep sea exploration discoveries",
-                          "Underwater wonders of the ocean",
-                          "Deep sea creatures you won't believe",
-                          "Ocean depths mysteries",
-                          "Marine biology discoveries",
-                          "Deep sea animals facts",
-                          "Underwater world secrets",
-                          "Ocean life amazing facts",
-                          "Deep sea creatures 2025",
-                          "Marine ecosystem wonders",
-                          "Deep sea exploration 2025",
-                          "Ocean mysteries solved"
-                      ]
-                      topics = random.sample(deepsea_topics, min(3, len(deepsea_topics)))
-                      print(f"🌊 Deep sea topics: {topics}")
                       return topics
                   
                   # === TRENDING TOPICS ===
@@ -270,10 +252,13 @@ jobs:
                           "Amazing nature phenomena",
                           "Scientific discoveries 2025",
                           "Technology innovations 2025",
-                          "Space exploration discoveries"
+                          "Space exploration discoveries",
+                          "Artificial intelligence breakthroughs",
+                          "Solar system discoveries",
+                          "Ancient mysteries revealed"
                       ]
                       topics = random.sample(fallback_topics, min(3, len(fallback_topics)))
-                      print(f"🔄 Trending topics: {topics}")
+                      print(f"🔥 Trending topics: {topics}")
                       return topics
                       
               except Exception as e:
@@ -561,7 +546,7 @@ jobs:
               return {
                   "language": os.getenv("SHORTGPT_LANG", "English"),
                   "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
-                  "niche_topic": os.getenv("SHORTGPT_NICHE", "Deep Sea Mysteries"),
+                  "niche_topic": os.getenv("SHORTGPT_NICHE", "Trending Topics"),
               }
 
           def main():
@@ -569,7 +554,7 @@ jobs:
               print("🚀 STARTING SHORTGPT AUTOMATION PIPELINE")
               print("=========================================================")
 
-              # Get random content type and topics
+              # Get random content type and topics (Football or Trending only)
               custom_topic, content_type = get_random_content_type()
               topics = get_trending_topics(content_type, custom_topic)
               
@@ -580,7 +565,6 @@ jobs:
               emojis = {
                   "football": "⚽",
                   "trending": "🔥",
-                  "deepsea": "🌊",
                   "custom": "📝"
               }
               emoji = emojis.get(content_type, "🎬")
@@ -604,8 +588,6 @@ jobs:
                       # Generate title from topic
                       if content_type == "football":
                           title = f"⚽ Vintage Football {topic} - ShortGPT"
-                      elif content_type == "deepsea":
-                          title = f"🌊 {topic} - ShortGPT"
                       else:
                           title = f"🔥 {topic} - ShortGPT"
                       
@@ -738,7 +720,7 @@ jobs:
             OUTPUT_VIDEO="videos/shorts_ready_$(basename "$RENDERED_VIDEO")"
             
             ffmpeg -y -i "$RENDERED_VIDEO" \
-              -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" \
+              -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-iw)/2" \
               -c:v libx264 \
               -preset medium \
               -crf 23 \
@@ -824,4 +806,18 @@ jobs:
                 print(f"❌ Video not found: {video_path}")
                 sys.exit(1)
             
-            if not os.path.exists('
+            if not os.path.exists('token.pickle'):
+                print("❌ token.pickle not found!")
+                sys.exit(1)
+            
+            print(f"📤 Uploading: {video_path}")
+            
+            # Generate title from filename
+            title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '').replace('test_background_', '')
+            if not title or title.startswith('2026'):
+                title = "Amazing Facts - ShortGPT"
+            
+            # Clean up title
+            title = title.replace('_', ' ')
+            if len(title) > 80:
+                title = title[:80

@@ -102,7 +102,7 @@ jobs:
           done
           echo "✅ Created fallback images"
 
-      - name: Run ShortGPT Automation
+      - name: Run ShortGPT Automation (Football + Trending Only)
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -236,6 +236,7 @@ jobs:
                       except Exception as e:
                           print(f"⚠️ News API failed: {e}")
                       
+                      # Fallback trending topics
                       fallback_topics = [
                           "Latest technology breakthroughs",
                           "Amazing science discoveries",
@@ -266,9 +267,11 @@ jobs:
           # =====================================================================
           import openai
           
+          # Set the API key and base URL for the old-style client
           openai.api_key = api_key_env
           openai.api_base = "https://api.groq.com/openai/v1"
           
+          # Also set up modern client
           modern_client = None
           try:
               from openai import OpenAI as ModernOpenAI
@@ -283,6 +286,7 @@ jobs:
           def handle_soft_landing(error_message):
               print("\n🟩 [AUTOMATION SOFT LANDING]: API Quota or Service Ceiling Intercepted.")
               print(f"🟩 Details: {error_message}")
+              print("🟩 Exiting cleanly with status code 0 to keep the automation workflow healthy...")
               sys.exit(0)
 
           # =====================================================================
@@ -292,6 +296,7 @@ jobs:
               from shortGPT.api_utils import youtube_api
               
               def search_youtube_videos(query, max_results=5, year_filter=None):
+                  """Search YouTube for videos with optional year filter"""
                   try:
                       if year_filter:
                           query = f"{query} before:{year_filter}"
@@ -315,9 +320,13 @@ jobs:
               
               class PatchedTextClip(original_textclip):
                   def __init__(self, *args, **kwargs):
+                      # Override the font to use Liberation Sans (available on Ubuntu)
                       if 'font' not in kwargs or kwargs['font'] is None:
                           kwargs['font'] = 'Liberation-Sans-Bold'
+                      
+                      # Also handle font if it's a list or tuple
                       if 'font' in kwargs and isinstance(kwargs['font'], (list, tuple)):
+                          # Use the first available font from the list
                           available_fonts = ['Liberation-Sans-Bold', 'DejaVu-Sans-Bold', 'FreeSans']
                           for font in available_fonts:
                               try:
@@ -325,12 +334,19 @@ jobs:
                                   break
                               except:
                                   continue
+                      
+                      # If the font is None or empty, use default
                       if not kwargs.get('font'):
                           kwargs['font'] = 'Liberation-Sans-Bold'
+                      
+                      # Always use a valid font
+                      print(f"🔤 [TEXTCLIP PATCH] Creating text with font: {kwargs.get('font')}")
                       
                       try:
                           super().__init__(*args, **kwargs)
                       except Exception as e:
+                          print(f"⚠️ TextClip creation failed: {e}")
+                          # Try with a different font
                           kwargs['font'] = 'DejaVu-Sans-Bold'
                           try:
                               super().__init__(*args, **kwargs)
@@ -338,6 +354,7 @@ jobs:
                               kwargs['font'] = 'FreeSans'
                               super().__init__(*args, **kwargs)
               
+              # Replace the TextClip class
               videoclip.TextClip = PatchedTextClip
               print("✅ MoviePy TextClip patched with valid fonts")
               
@@ -351,6 +368,7 @@ jobs:
               import shortGPT.editing_utils.handle_videos as handle_videos
               
               def patched_extract_random_clip(video_path, duration, target_duration, output_path):
+                  """Completely replace the extraction function"""
                   print(f"🎬 [PATCHED] Extracting clip from {video_path}")
                   print(f"   Duration: {duration}, Target: {target_duration}")
                   
@@ -419,6 +437,7 @@ jobs:
                       print(f"🔍 Asset request for: '{key_str}'")
                       
                       if "subscribe" in key_str or "animation" in key_str:
+                          print(f"⚠️ Subscribe animation requested, returning synthetic")
                           if os.path.exists("test_background.mp4"):
                               return "test_background.mp4"
                           return "fallback_background_video.mp4"
@@ -458,18 +477,25 @@ jobs:
               from shortGPT.gpt import gpt_utils
               
               def groq_completion(*args, **kwargs):
+                  """Handle both chat_prompt and prompt parameter styles"""
+                  # Extract the prompt
                   chat_prompt = kwargs.get('chat_prompt') or kwargs.get('prompt')
+                  
+                  # If no prompt in kwargs, check positional args
                   if chat_prompt is None and len(args) > 0:
                       chat_prompt = args[0]
                   
+                  # Extract system message
                   system = kwargs.get('system', '')
                   if system is None:
                       system = ''
                   
+                  # Extract temperature
                   temp = kwargs.get('temp', kwargs.get('temperature', 1.0))
                   if temp is None:
                       temp = 1.0
                   
+                  # Extract model
                   model = kwargs.get('model', os.getenv("OPENAI_MODEL", "llama-3.1-8b-instant"))
                   
                   print(f"🤖 Groq completion called with prompt: {str(chat_prompt)[:50]}...")
@@ -480,6 +506,7 @@ jobs:
                           messages.append({"role": "system", "content": system})
                       messages.append({"role": "user", "content": chat_prompt})
                       
+                      # Try modern client first
                       if modern_client:
                           response = modern_client.chat.completions.create(
                               model=model,
@@ -488,6 +515,7 @@ jobs:
                           )
                           return response.choices[0].message.content
                       
+                      # Fallback: use requests directly to Groq
                       import requests
                       import json
                       
@@ -507,7 +535,7 @@ jobs:
                           data = response.json()
                           return data['choices'][0]['message']['content']
                       else:
-                          raise Exception(f"Groq API error: {response.status_code}")
+                          raise Exception(f"Groq API error: {response.status_code} - {response.text}")
                           
                   except Exception as e:
                       if "429" in str(e) or "quota" in str(e).lower():
@@ -515,11 +543,14 @@ jobs:
                       print(f"❌ Groq completion error: {e}")
                       raise e
               
+              # Replace both functions with our unified version
               if hasattr(gpt_utils, 'llm_completion'):
                   gpt_utils.llm_completion = groq_completion
+                  print("✅ GPT utils llm_completion replaced with Groq")
+              
               if hasattr(gpt_utils, 'gpt3Turbo_completion'):
                   gpt_utils.gpt3Turbo_completion = groq_completion
-              print("✅ GPT utils replaced with Groq")
+                  print("✅ GPT utils gpt3Turbo_completion replaced with Groq")
                   
           except Exception as gpt_patch_err:
               print(f"⚠️ GPT patch notice: {gpt_patch_err}")
@@ -538,6 +569,18 @@ jobs:
                   "voice": os.getenv("SHORTGPT_VOICE", "en-US-ChristopherNeural"), 
                   "niche_topic": os.getenv("SHORTGPT_NICHE", "Trending Topics"),
               }
+
+          def sanitize_numpy_types(obj):
+              import numpy as np
+              if isinstance(obj, dict):
+                  return {k: sanitize_numpy_types(v) for k, v in obj.items()}
+              elif isinstance(obj, list):
+                  return [sanitize_numpy_types(x) for x in obj]
+              elif isinstance(obj, (np.float64, np.float32)):
+                  return float(obj)
+              elif isinstance(obj, (np.int64, np.int32)):
+                  return int(obj)
+              return obj
 
           def main():
               print("=========================================================")
@@ -560,16 +603,20 @@ jobs:
               print(f"📋 Content Type: {content_type.upper()} {emoji}")
               print(f"📋 Topics to generate: {topics}")
               
-              for idx, topic in enumerate(topics[:3]):
+              # Generate a video for each topic
+              for idx, topic in enumerate(topics[:3]):  # Max 3 videos per run
                   print(f"\n--- Generating video {idx+1}/{min(3, len(topics))}: {topic} ---")
                   
                   try:
+                      # Create a specific background for this topic
                       topic_slug = topic.replace(' ', '_').replace("'", "")[:30]
                       bg_video = f"test_background_{topic_slug}.mp4"
                       
+                      # Copy the base background or create a new one
                       if os.path.exists("test_background.mp4"):
                           shutil.copy2("test_background.mp4", bg_video)
                       
+                      # Generate title from topic
                       if content_type == "football":
                           title = f"⚽ Vintage Football {topic} - ShortGPT"
                       else:
@@ -605,6 +652,7 @@ jobs:
                       try:
                           lang_enum = Language.from_string(language)
                       except Exception:
+                          print(f"⚠️ Language defaulting to English")
                           lang_enum = Language.ENGLISH
 
                       voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
@@ -616,7 +664,7 @@ jobs:
                           facts_type=topic,
                           background_video_name=local_video,
                           background_music_name=local_audio,
-                          num_images=5,
+                          num_images=5,  # SHOW IMAGES IN VIDEO
                           language=lang_enum
                       )
 
@@ -625,13 +673,18 @@ jobs:
                       
                       while True:
                           try:
+                              if hasattr(content_engine, 'caption_timing_map') and content_engine.caption_timing_map:
+                                  content_engine.caption_timing_map = sanitize_numpy_types(content_engine.caption_timing_map)
+                              
                               step_num, step_logs = next(engine_loop)
                               print(f"    [Step {step_num}/12]: {step_logs}")
+                              
                           except StopIteration:
                               break
 
                       print(f"✅ SUCCESS! Video rendered for: {topic}")
                       
+                      # Generate thumbnail
                       try:
                           latest_video = None
                           video_files = list(Path("videos").glob("*.mp4"))
@@ -651,8 +704,12 @@ jobs:
                           print(f"⚠️ Thumbnail generation failed: {thumb_err}")
 
                   except Exception as video_failure:
+                      err_str = str(video_failure)
+                      if "429" in err_str or "Quota exceeded" in err_str:
+                          handle_soft_landing(err_str)
                       print(f"❌ Failed to generate video for: {topic}")
                       print(f"❌ Error: {video_failure}")
+                      traceback.print_exc()
                       continue
 
               print("\n=========================================================")
@@ -672,6 +729,7 @@ jobs:
           echo "📊 File sizes:"
           find videos/ -name "*.mp4" -exec ls -lh {} \; 2>/dev/null || echo "No MP4 files found"
           
+          # Fix any corrupt videos
           for video in videos/*.mp4; do
             if [ -f "$video" ]; then
               FILE_SIZE=$(stat -c%s "$video" 2>/dev/null || stat -f%z "$video" 2>/dev/null || echo "0")
@@ -693,6 +751,7 @@ jobs:
             
             echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
             
+            # Convert to YouTube Shorts format
             OUTPUT_VIDEO="videos/shorts_ready_$(basename "$RENDERED_VIDEO")"
             
             ffmpeg -y -i "$RENDERED_VIDEO" \
@@ -707,6 +766,7 @@ jobs:
               -pix_fmt yuv420p \
               "$OUTPUT_VIDEO"
             
+            # Check if conversion succeeded
             if [ -f "$OUTPUT_VIDEO" ] && [ $(stat -c%s "$OUTPUT_VIDEO" 2>/dev/null || stat -f%z "$OUTPUT_VIDEO" 2>/dev/null || echo "0") -gt 10240 ]; then
               mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
               echo "✅ Video converted for YouTube Shorts"
@@ -756,76 +816,4 @@ jobs:
             export LATEST_VIDEO="$LATEST_VIDEO"
             
             echo "📤 Found video: $LATEST_VIDEO"
-            echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
-            
-            VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
-            if [ "$VIDEO_SIZE" -lt 10240 ]; then
-              echo "❌ Video too small ($VIDEO_SIZE bytes) - skipping"
-              continue
-            fi
-            
-            python3 -c "
-import os
-import sys
-import pickle
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
-SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-
-video_path = os.environ.get('LATEST_VIDEO')
-
-if not video_path or not os.path.exists(video_path):
-    print(f'❌ Video not found: {video_path}')
-    sys.exit(1)
-
-if not os.path.exists('token.pickle'):
-    print('❌ token.pickle not found!')
-    sys.exit(1)
-
-print(f'📤 Uploading: {video_path}')
-
-title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '').replace('test_background_', '')
-if not title or title.startswith('2026'):
-    title = 'Amazing Facts - ShortGPT'
-
-title = title.replace('_', ' ')
-if len(title) > 80:
-    title = title[:80]
-
-description = 'Generated by ShortGPT.\n\n#shorts #facts #viral #trending #ai #football'
-keywords = ['shorts', 'facts', 'trending', 'ai', 'automation', 'football']
-
-print(f'📝 Title: {title}')
-print(f'🔒 Privacy: public')
-
-try:
-    with open('token.pickle', 'rb') as token:
-        creds = pickle.load(token)
-    print('✅ Loaded token.pickle')
-except Exception as e:
-    print(f'❌ Failed to load token.pickle: {e}')
-    sys.exit(1)
-
-if creds and creds.expired and creds.refresh_token:
-    try:
-        creds.refresh(Request())
-        print('✅ Token refreshed')
-    except Exception as e:
-        print(f'⚠️ Token refresh failed: {e}')
-
-if not creds or not creds.valid:
-    print('❌ Invalid credentials')
-    sys.exit(1)
-
-try:
-    youtube = build('youtube', 'v3', credentials=creds)
-    print('✅ Authenticated with YouTube')
-    
-    body = {
-        'snippet': {
-            'title': title[:100],
-            'description': description[:5000],
-            'tags': keywords,
-            'categoryId': '
+            echo "📊 Video size: $(du -h "$LATEST_VIDEO"

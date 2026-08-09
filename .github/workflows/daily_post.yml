@@ -189,7 +189,6 @@ jobs:
                   # === FOOTBALL TOPICS ===
                   if content_type == "football":
                       football_topics = [
-                          # Vintage football (2014 and before)
                           "2014 World Cup highlights",
                           "Vintage football legends 2014",
                           "Classic football matches 2014",
@@ -211,17 +210,15 @@ jobs:
                           "Vintage football matches 2014",
                           "World Cup 2014 best goals"
                       ]
-                      # Select 3 random topics
                       topics = random.sample(football_topics, min(3, len(football_topics)))
                       print(f"⚽ Football topics: {topics}")
                       return topics
                   
                   # === TRENDING TOPICS ===
-                  else:  # trending
+                  else:
                       try:
                           from newsapi import NewsApiClient
                           
-                          # Try to get news headlines
                           newsapi_key = os.getenv("NEWS_API_KEY", "")
                           if newsapi_key:
                               newsapi = NewsApiClient(api_key=newsapi_key)
@@ -239,7 +236,6 @@ jobs:
                       except Exception as e:
                           print(f"⚠️ News API failed: {e}")
                       
-                      # Fallback trending topics
                       fallback_topics = [
                           "Latest technology breakthroughs",
                           "Amazing science discoveries",
@@ -263,7 +259,6 @@ jobs:
                       
               except Exception as e:
                   print(f"❌ Error fetching topics: {e}")
-                  # Final fallback topics
                   return ["Amazing science facts", "Incredible discoveries", "Mind-blowing facts"]
 
           # =====================================================================
@@ -271,11 +266,9 @@ jobs:
           # =====================================================================
           import openai
           
-          # Set the API key and base URL for the old-style client
           openai.api_key = api_key_env
           openai.api_base = "https://api.groq.com/openai/v1"
           
-          # Also set up modern client
           modern_client = None
           try:
               from openai import OpenAI as ModernOpenAI
@@ -299,7 +292,6 @@ jobs:
               from shortGPT.api_utils import youtube_api
               
               def search_youtube_videos(query, max_results=5, year_filter=None):
-                  """Search YouTube for videos with optional year filter"""
                   try:
                       if year_filter:
                           query = f"{query} before:{year_filter}"
@@ -359,7 +351,6 @@ jobs:
               import shortGPT.editing_utils.handle_videos as handle_videos
               
               def patched_extract_random_clip(video_path, duration, target_duration, output_path):
-                  """Completely replace the extraction function"""
                   print(f"🎬 [PATCHED] Extracting clip from {video_path}")
                   print(f"   Duration: {duration}, Target: {target_duration}")
                   
@@ -428,7 +419,6 @@ jobs:
                       print(f"🔍 Asset request for: '{key_str}'")
                       
                       if "subscribe" in key_str or "animation" in key_str:
-                          print(f"⚠️ Subscribe animation requested, returning synthetic")
                           if os.path.exists("test_background.mp4"):
                               return "test_background.mp4"
                           return "fallback_background_video.mp4"
@@ -554,14 +544,12 @@ jobs:
               print("🚀 STARTING SHORTGPT AUTOMATION PIPELINE")
               print("=========================================================")
 
-              # Get random content type and topics (Football or Trending only)
               custom_topic, content_type = get_random_content_type()
               topics = get_trending_topics(content_type, custom_topic)
               
               if not topics:
                   topics = ["Amazing science facts", "Incredible discoveries"]
               
-              # Get emoji for the content type
               emojis = {
                   "football": "⚽",
                   "trending": "🔥",
@@ -572,20 +560,16 @@ jobs:
               print(f"📋 Content Type: {content_type.upper()} {emoji}")
               print(f"📋 Topics to generate: {topics}")
               
-              # Generate a video for each topic
-              for idx, topic in enumerate(topics[:3]):  # Max 3 videos per run
+              for idx, topic in enumerate(topics[:3]):
                   print(f"\n--- Generating video {idx+1}/{min(3, len(topics))}: {topic} ---")
                   
                   try:
-                      # Create a specific background for this topic
                       topic_slug = topic.replace(' ', '_').replace("'", "")[:30]
                       bg_video = f"test_background_{topic_slug}.mp4"
                       
-                      # Copy the base background or create a new one
                       if os.path.exists("test_background.mp4"):
                           shutil.copy2("test_background.mp4", bg_video)
                       
-                      # Generate title from topic
                       if content_type == "football":
                           title = f"⚽ Vintage Football {topic} - ShortGPT"
                       else:
@@ -625,9 +609,6 @@ jobs:
 
                       voice_module = EdgeTTSVoiceModule(voiceName=voice_choice)
 
-                      # =============================================================
-                      # CREATE VIDEO WITH IMAGES
-                      # =============================================================
                       print(f"🎬 Generating {content_type} video for: {topic}")
                       
                       content_engine = FactsShortEngine(
@@ -635,7 +616,7 @@ jobs:
                           facts_type=topic,
                           background_video_name=local_video,
                           background_music_name=local_audio,
-                          num_images=5,  # SHOW IMAGES IN VIDEO
+                          num_images=5,
                           language=lang_enum
                       )
 
@@ -651,7 +632,6 @@ jobs:
 
                       print(f"✅ SUCCESS! Video rendered for: {topic}")
                       
-                      # Generate thumbnail
                       try:
                           latest_video = None
                           video_files = list(Path("videos").glob("*.mp4"))
@@ -659,8 +639,6 @@ jobs:
                               latest_video = max(video_files, key=lambda x: x.stat().st_mtime)
                               if latest_video:
                                   print(f"📸 Generating thumbnail for: {latest_video}")
-                                  
-                                  # Extract first frame as thumbnail
                                   thumbnail_path = latest_video.with_suffix('.png')
                                   cmd = [
                                       'ffmpeg', '-y', '-ss', '00:00:01', '-i', str(latest_video),
@@ -694,7 +672,6 @@ jobs:
           echo "📊 File sizes:"
           find videos/ -name "*.mp4" -exec ls -lh {} \; 2>/dev/null || echo "No MP4 files found"
           
-          # Fix any corrupt videos
           for video in videos/*.mp4; do
             if [ -f "$video" ]; then
               FILE_SIZE=$(stat -c%s "$video" 2>/dev/null || stat -f%z "$video" 2>/dev/null || echo "0")
@@ -716,7 +693,6 @@ jobs:
             
             echo "📹 Converting $RENDERED_VIDEO for YouTube Shorts..."
             
-            # Convert to YouTube Shorts format
             OUTPUT_VIDEO="videos/shorts_ready_$(basename "$RENDERED_VIDEO")"
             
             ffmpeg -y -i "$RENDERED_VIDEO" \
@@ -731,7 +707,6 @@ jobs:
               -pix_fmt yuv420p \
               "$OUTPUT_VIDEO"
             
-            # Check if conversion succeeded
             if [ -f "$OUTPUT_VIDEO" ] && [ $(stat -c%s "$OUTPUT_VIDEO" 2>/dev/null || stat -f%z "$OUTPUT_VIDEO" 2>/dev/null || echo "0") -gt 10240 ]; then
               mv "$OUTPUT_VIDEO" "$RENDERED_VIDEO"
               echo "✅ Video converted for YouTube Shorts"
@@ -783,41 +758,74 @@ jobs:
             echo "📤 Found video: $LATEST_VIDEO"
             echo "📊 Video size: $(du -h "$LATEST_VIDEO" | cut -f1)"
             
-            # Check if video is valid
             VIDEO_SIZE=$(stat -c%s "$LATEST_VIDEO" 2>/dev/null || stat -f%z "$LATEST_VIDEO" 2>/dev/null || echo "0")
             if [ "$VIDEO_SIZE" -lt 10240 ]; then
               echo "❌ Video too small ($VIDEO_SIZE bytes) - skipping"
               continue
             fi
             
-            python3 << 'EOF'
-            import os
-            import sys
-            import pickle
-            from google.auth.transport.requests import Request
-            from googleapiclient.discovery import build
-            from googleapiclient.http import MediaFileUpload
-            
-            SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
-            
-            video_path = os.environ.get('LATEST_VIDEO')
-            
-            if not video_path or not os.path.exists(video_path):
-                print(f"❌ Video not found: {video_path}")
-                sys.exit(1)
-            
-            if not os.path.exists('token.pickle'):
-                print("❌ token.pickle not found!")
-                sys.exit(1)
-            
-            print(f"📤 Uploading: {video_path}")
-            
-            # Generate title from filename
-            title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '').replace('test_background_', '')
-            if not title or title.startswith('2026'):
-                title = "Amazing Facts - ShortGPT"
-            
-            # Clean up title
-            title = title.replace('_', ' ')
-            if len(title) > 80:
-                title = title[:80
+            python3 -c "
+import os
+import sys
+import pickle
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
+SCOPES = ['https://www.googleapis.com/auth/youtube.upload']
+
+video_path = os.environ.get('LATEST_VIDEO')
+
+if not video_path or not os.path.exists(video_path):
+    print(f'❌ Video not found: {video_path}')
+    sys.exit(1)
+
+if not os.path.exists('token.pickle'):
+    print('❌ token.pickle not found!')
+    sys.exit(1)
+
+print(f'📤 Uploading: {video_path}')
+
+title = os.path.basename(video_path).replace('.mp4', '').replace('youtube_ready_', '').replace('shorts_ready_', '').replace('test_background_', '')
+if not title or title.startswith('2026'):
+    title = 'Amazing Facts - ShortGPT'
+
+title = title.replace('_', ' ')
+if len(title) > 80:
+    title = title[:80]
+
+description = 'Generated by ShortGPT.\n\n#shorts #facts #viral #trending #ai #football'
+keywords = ['shorts', 'facts', 'trending', 'ai', 'automation', 'football']
+
+print(f'📝 Title: {title}')
+print(f'🔒 Privacy: public')
+
+try:
+    with open('token.pickle', 'rb') as token:
+        creds = pickle.load(token)
+    print('✅ Loaded token.pickle')
+except Exception as e:
+    print(f'❌ Failed to load token.pickle: {e}')
+    sys.exit(1)
+
+if creds and creds.expired and creds.refresh_token:
+    try:
+        creds.refresh(Request())
+        print('✅ Token refreshed')
+    except Exception as e:
+        print(f'⚠️ Token refresh failed: {e}')
+
+if not creds or not creds.valid:
+    print('❌ Invalid credentials')
+    sys.exit(1)
+
+try:
+    youtube = build('youtube', 'v3', credentials=creds)
+    print('✅ Authenticated with YouTube')
+    
+    body = {
+        'snippet': {
+            'title': title[:100],
+            'description': description[:5000],
+            'tags': keywords,
+            'categoryId': '
